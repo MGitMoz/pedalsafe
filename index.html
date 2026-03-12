@@ -518,6 +518,7 @@ function activateORS() {
   const raw = document.getElementById('orsKey').value.trim();
   if (!raw) { alert('Please paste your ORS API key first.'); return; }
   orsApiKey = raw;
+  try { localStorage.setItem('pedalsafe_ors_key', raw); } catch(e) {}
   document.getElementById('setupCard').style.display = 'none';
   initMap();
 }
@@ -1137,6 +1138,17 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.key === 'Enter') findRoutes();
     });
   });
+
+  // Auto-load saved API key
+  try {
+    const saved = localStorage.getItem('pedalsafe_ors_key');
+    if (saved) {
+      orsApiKey = saved;
+      document.getElementById('orsKey').value = saved;
+      document.getElementById('setupCard').style.display = 'none';
+      initMap();
+    }
+  } catch(e) {}
 });
 </script>
 </body>
