@@ -330,18 +330,6 @@ header {
   <div class="sidebar">
     <div class="sidebar-scroll">
 
-      <!-- ORS KEY -->
-      <div class="setup-card" id="setupCard">
-        <div class="setup-title">🔑 Free API Key Needed</div>
-        <div class="setup-desc">
-          Get a free key at <a href="https://openrouteservice.org/dev/#/signup" target="_blank">openrouteservice.org</a> (no credit card, 2,000 routes/day free). Paste it below to activate live routing.
-        </div>
-        <div class="key-row">
-          <input class="key-input" id="orsKey" type="password" placeholder="5b3ce3597851...">
-          <button class="key-btn" onclick="activateORS()">Activate 🚀</button>
-        </div>
-      </div>
-
       <!-- ROUTE INPUTS -->
       <div class="slabel">📍 Your Route</div>
       <div class="route-card">
@@ -504,7 +492,7 @@ if (typeof L === 'undefined') {
 }
 
 // ===== STATE =====
-let orsApiKey = '';
+let orsApiKey = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjA2YjE1Zjg0NTBiMzRjNWZhY2FkN2U3NmNhYTZkZDZiIiwiaCI6Im11cm11cjY0In0=';
 let map = null;
 let routeLayers = [];
 let accidentLayers = [];
@@ -1138,17 +1126,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.key === 'Enter') findRoutes();
     });
   });
-
-  // Auto-load saved API key
-  try {
-    const saved = localStorage.getItem('pedalsafe_ors_key');
-    if (saved) {
-      orsApiKey = saved;
-      document.getElementById('orsKey').value = saved;
-      document.getElementById('setupCard').style.display = 'none';
-      initMap();
-    }
-  } catch(e) {}
+  // Auto-init map with hardcoded key
+  initMap();
 });
 </script>
 </body>
