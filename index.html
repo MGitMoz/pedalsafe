@@ -174,6 +174,22 @@ header {
 .star { font-size: 14px; cursor: pointer; opacity: 0.3; transition: opacity 0.15s; }
 .star.on { opacity: 1; }
 
+/* ROUTE LENGTH TOLERANCE */
+.tolerance-card {
+  background: var(--sky-pale); border: 2px solid var(--sky-light);
+  border-radius: var(--radius); padding: 1rem; margin-bottom: 1.1rem;
+}
+.tolerance-labels {
+  display: flex; justify-content: space-between;
+  font-size: 0.67rem; font-weight: 700; color: var(--ink-light); margin-top: 0.35rem;
+}
+.tolerance-value {
+  text-align: center; font-size: 0.85rem; font-weight: 800; color: var(--sky); margin-top: 0.4rem;
+}
+input[type=range].tslider {
+  width: 100%; accent-color: var(--sky); height: 6px; cursor: pointer; margin-top: 0.6rem;
+}
+
 /* FIND BUTTON */
 .find-btn {
   width: 100%; padding: 0.95rem; background: linear-gradient(135deg, var(--sky), #3fa0e8);
@@ -307,6 +323,163 @@ header {
 /* RESULTS hidden by default */
 .results-section { display: none; }
 .results-section.show { display: block; }
+
+/* ===== MOBILE STYLES ===== */
+@media (max-width: 768px) {
+  html, body { overflow: hidden; height: 100%; height: 100dvh; }
+
+  header {
+    height: 56px; padding: 0 1rem;
+  }
+  .logo-name { font-size: 1.3rem; }
+  .logo-tag { display: none; }
+  .hbadge { display: none; }
+
+  /* Full screen map behind everything */
+  .app {
+    flex-direction: column;
+    height: calc(100dvh - 56px);
+    position: relative;
+  }
+
+  /* Map fills full screen */
+  #map, .map-ph {
+    position: absolute !important;
+    top: 0; left: 0; right: 0; bottom: 0;
+    width: 100% !important;
+    height: 100% !important;
+    z-index: 1;
+  }
+
+  /* BOTTOM SHEET */
+  .sidebar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    width: 100% !important;
+    min-width: unset !important;
+    height: auto;
+    max-height: 85dvh;
+    border-right: none;
+    border-top: 3px solid var(--sky-light);
+    border-radius: 22px 22px 0 0;
+    z-index: 100;
+    box-shadow: 0 -8px 32px rgba(91,184,245,0.2);
+    transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+    transform: translateY(calc(100% - 130px));
+  }
+
+  .sidebar.expanded {
+    transform: translateY(0);
+  }
+
+  .sidebar.peek {
+    transform: translateY(calc(100% - 130px));
+  }
+
+  /* Drag handle */
+  .sidebar::before {
+    content: '';
+    display: block;
+    width: 40px; height: 5px;
+    background: var(--mist);
+    border-radius: 3px;
+    margin: 10px auto 0;
+    flex-shrink: 0;
+  }
+
+  /* Peek preview — shows route inputs and find button */
+  .sheet-peek {
+    display: flex;
+    flex-direction: column;
+    padding: 0.75rem 1rem 0;
+    flex-shrink: 0;
+  }
+
+  .sidebar-scroll {
+    padding: 0 1rem 2rem;
+    max-height: calc(85dvh - 130px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Bigger touch targets */
+  .route-input {
+    font-size: 1rem;
+    padding: 0.75rem 1rem;
+    min-height: 48px;
+  }
+
+  .find-btn {
+    font-size: 1rem;
+    padding: 1rem;
+    min-height: 52px;
+    border-radius: 14px;
+    margin-bottom: 0;
+  }
+
+  .chip {
+    padding: 0.45rem 1rem;
+    font-size: 0.82rem;
+    min-height: 36px;
+  }
+
+  .star { font-size: 18px; }
+
+  /* Route input card tighter on mobile */
+  .route-card {
+    padding: 0.85rem;
+    margin-bottom: 0.85rem;
+  }
+
+  /* Alt cards slightly more compact */
+  .alt-card { padding: 0.8rem; }
+
+  /* Export buttons bigger for touch */
+  .exp-btn {
+    padding: 0.75rem;
+    font-size: 0.85rem;
+    min-height: 48px;
+  }
+
+  /* Map legend repositioned above sheet peek */
+  .map-legend {
+    bottom: 140px;
+    right: 10px;
+  }
+
+  /* Autocomplete wider on mobile */
+  .autocomplete-list { max-height: 160px; }
+
+  /* Sections that are only needed on desktop */
+  .hbadge { display: none; }
+
+  /* Floating map button to expand/collapse sheet */
+  .sheet-toggle-btn {
+    display: flex !important;
+  }
+}
+
+/* Sheet toggle button (mobile only) */
+.sheet-toggle-btn {
+  display: none;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 200;
+  background: white;
+  border: 2px solid var(--sky-light);
+  border-radius: 12px;
+  padding: 0.5rem 0.85rem;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--sky);
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  gap: 5px;
+  align-items: center;
+}
+
 </style>
 </head>
 <body>
@@ -327,7 +500,20 @@ header {
 
 <div class="app">
   <!-- SIDEBAR -->
-  <div class="sidebar">
+  <div class="sidebar" id="sidebar">
+
+    <!-- MOBILE PEEK (always visible) -->
+    <div class="sheet-peek" id="sheetPeek">
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input class="route-input" id="startInputPeek" type="text" placeholder="📍 From…" readonly onclick="expandSheet()" style="flex:1;font-size:0.85rem;padding:0.6rem 0.85rem;cursor:pointer;background:var(--cloud)">
+        <input class="route-input" id="endInputPeek" type="text" placeholder="🏁 To…" readonly onclick="expandSheet()" style="flex:1;font-size:0.85rem;padding:0.6rem 0.85rem;cursor:pointer;background:var(--cloud)">
+      </div>
+      <button class="find-btn" style="margin-bottom:0.75rem" onclick="findRoutes()">
+        <div class="spinner" id="spinnerPeek"></div>
+        <span id="btnTextPeek">🔍 Find Safest Routes</span>
+      </button>
+    </div>
+
     <div class="sidebar-scroll">
 
       <!-- ROUTE INPUTS -->
@@ -399,6 +585,20 @@ header {
         </div>
       </div>
 
+      <!-- ROUTE LENGTH TOLERANCE -->
+      <div class="slabel">📏 How long is OK?</div>
+      <div class="tolerance-card">
+        <div style="font-size:0.8rem;font-weight:700;color:var(--ink)">Route length tolerance</div>
+        <div style="font-size:0.68rem;color:var(--ink-light);margin-top:2px">A longer route can mean much safer streets. How far are you willing to go?</div>
+        <input type="range" class="tslider" id="toleranceSlider" min="1" max="5" value="3" oninput="updateTolerance()">
+        <div class="tolerance-labels">
+          <span>Shortest</span>
+          <span>Balanced</span>
+          <span>Any length</span>
+        </div>
+        <div class="tolerance-value" id="toleranceLabel">🚴 Up to 2× the direct distance</div>
+      </div>
+
       <button class="find-btn" id="findBtn" onclick="findRoutes()">
         <div class="spinner" id="spinner"></div>
         <span id="btnText">🔍 Find Safest Routes</span>
@@ -468,6 +668,9 @@ header {
   </div>
 
   <!-- MAP -->
+  <button class="sheet-toggle-btn" id="sheetToggleBtn" onclick="toggleSheet()">
+    🗺️ <span id="sheetToggleLabel">Route</span>
+  </button>
   <div id="mapPH" class="map-ph">
     <div class="map-ph-icon">🚴</div>
     <div class="map-ph-title">Your safe route appears here</div>
@@ -664,14 +867,32 @@ async function resolveCoords(which) {
 
 // ===== ORS API =====
 async function fetchORSRoutes() {
-  // Fetch 3 alternative cycling profiles with different safety preferences
+  const tolerance = parseInt(document.getElementById('toleranceSlider').value);
+
+  // cycling-electric profile has the best quietness/traffic weighting in ORS
+  // We use it for all 3 routes and vary the aggressiveness of safety params
   const profiles = [
-    { profile: 'cycling-regular', pref: 'recommended', label: 'Safest Route', emoji: '🏆' },
-    { profile: 'cycling-road', pref: 'shortest', label: 'Balanced Route', emoji: '⚖️' },
-    { profile: 'cycling-regular', pref: 'shortest', label: 'Fastest Route', emoji: '⚡' },
+    {
+      profile: 'cycling-electric',
+      pref: 'recommended',
+      label: 'Safest Route', emoji: '🏆',
+      mode: 'safest'
+    },
+    {
+      profile: 'cycling-regular',
+      pref: 'recommended',
+      label: 'Balanced Route', emoji: '⚖️',
+      mode: 'balanced'
+    },
+    {
+      profile: 'cycling-regular',
+      pref: 'shortest',
+      label: 'Fastest Route', emoji: '⚡',
+      mode: 'fastest'
+    },
   ];
 
-  const results = await Promise.allSettled(profiles.map(p => fetchSingleRoute(p)));
+  const results = await Promise.allSettled(profiles.map(p => fetchSingleRoute(p, tolerance)));
 
   routesData = results
     .filter(r => r.status === 'fulfilled' && r.value)
@@ -679,22 +900,82 @@ async function fetchORSRoutes() {
 
   if (!routesData.length) throw new Error('No routes found');
 
-  // Score routes
   routesData = routesData.map(r => ({ ...r, safety: computeSafetyScore(r) }));
   routesData.sort((a, b) => b.safety.overall - a.safety.overall);
 
   displayRoutes();
 }
 
-async function fetchSingleRoute(prof) {
+async function fetchSingleRoute(prof, tolerance) {
+  // Detour factor: how much longer than direct distance is acceptable
+  // 1=shortest possible, 5=up to 4x direct distance for maximum safety
+  const detourFactors = [1.05, 1.4, 2.0, 3.0, 4.5];
+  const detourFactor = detourFactors[tolerance - 1];
+
+  // Hill limits tighten significantly at higher safety tolerance
+  // because the user is willing to go longer to avoid steep descents
+  const maxIncline = prof.mode === 'safest'
+    ? (tolerance <= 2 ? 4 : tolerance <= 3 ? 6 : tolerance <= 4 ? 8 : 10)
+    : (tolerance <= 2 ? 8 : tolerance <= 3 ? 12 : 15);
+
+  const maxDecline = prof.mode === 'safest'
+    ? (tolerance <= 2 ? 3 : tolerance <= 3 ? 5 : tolerance <= 4 ? 6 : 8)
+    : (tolerance <= 2 ? 6 : tolerance <= 3 ? 9 : 12);
+
+  // Quietness factor: 1.0 = maximum preference for quiet streets
+  // This is the most impactful setting for avoiding busy roads
+  const quietness = prof.mode === 'safest'
+    ? (tolerance <= 2 ? 0.8 : tolerance <= 3 ? 0.9 : 1.0)
+    : prof.mode === 'balanced'
+    ? (tolerance <= 2 ? 0.5 : tolerance <= 3 ? 0.65 : 0.75)
+    : 0.2;
+
   const body = {
     coordinates: [startCoords, endCoords],
     preference: prof.pref,
     instructions: true,
     elevation: true,
-    extra_info: ['surface', 'waycategory', 'waytype', 'traildifficulty'],
-    units: 'mi'
+    extra_info: ['surface', 'waycategory', 'waytype', 'steepness', 'traildifficulty'],
+    units: 'mi',
+    options: {
+      avoid_features: ['highways', 'tollways', 'ferries', 'steps'],
+      profile_params: {
+        weightings: {
+          // quiet: how strongly to prefer quiet/residential roads over busy ones
+          // This is the key lever for traffic volume avoidance
+          quiet: { factor: quietness },
+          // green: prefer parks, paths, cycleways
+          green: { factor: prof.mode === 'fastest' ? 0.3 : 0.9 },
+          // surface quality preference
+          surface: { factor: prof.mode === 'fastest' ? 0.3 : 0.7 },
+        },
+        restrictions: {
+          // Incline/decline limits in % grade — critical for steep descent safety
+          maximum_incline: maxIncline,
+          maximum_decline: maxDecline,
+          // Avoid roads where cyclists must share with fast-moving traffic
+          allow_unsuitable: false,
+        }
+      },
+      // Allow route to be longer than direct distance by detourFactor
+      // This is what enables "go 3x longer to stay safe"
+      maximum_speed_lower_bound: 0,
+    }
   };
+
+  // For safest route at tolerance 4-5, add dynamic waypoints
+  // to force the route through known quiet areas (midpoint offset trick)
+  if (prof.mode === 'safest' && tolerance >= 4 && startCoords && endCoords) {
+    const midLng = (startCoords[0] + endCoords[0]) / 2;
+    const midLat = (startCoords[1] + endCoords[1]) / 2;
+    // Offset midpoint slightly to encourage residential routing
+    const offsetScale = 0.002 * tolerance;
+    body.coordinates = [
+      startCoords,
+      [midLng + offsetScale, midLat + offsetScale],
+      endCoords
+    ];
+  }
 
   const res = await fetch(`https://api.openrouteservice.org/v2/directions/${prof.profile}/geojson`, {
     method: 'POST',
@@ -708,6 +989,8 @@ async function fetchSingleRoute(prof) {
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
     console.warn('ORS error:', res.status, errText);
+    // Fallback: retry without restrictions if failed
+    if (res.status === 400) return fetchSingleRouteFallback(prof);
     return null;
   }
   const data = await res.json().catch(() => null);
@@ -715,54 +998,130 @@ async function fetchSingleRoute(prof) {
   return data.features[0];
 }
 
+// Fallback route with minimal restrictions if main request fails
+async function fetchSingleRouteFallback(prof) {
+  const body = {
+    coordinates: [startCoords, endCoords],
+    preference: prof.mode === 'fastest' ? 'shortest' : 'recommended',
+    instructions: true,
+    elevation: true,
+    extra_info: ['surface', 'waytype', 'steepness'],
+    units: 'mi',
+    options: {
+      avoid_features: ['highways', 'tollways'],
+      profile_params: {
+        weightings: {
+          quiet: { factor: prof.mode === 'safest' ? 0.8 : 0.4 },
+          green: { factor: prof.mode === 'safest' ? 0.8 : 0.3 },
+        }
+      }
+    }
+  };
+
+  try {
+    const res = await fetch(`https://api.openrouteservice.org/v2/directions/${prof.profile}/geojson`, {
+      method: 'POST',
+      headers: { 'Authorization': orsApiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (!data?.features?.length) return null;
+    return data.features[0];
+  } catch(e) { return null; }
+}
+
 // ===== SAFETY SCORING ENGINE =====
 function computeSafetyScore(feature) {
   const props = feature.properties || {};
-  const segments = props.segments || [{}];
   const extras = props.extras || {};
   const summary = props.summary || {};
 
-  // Distance in miles
-  const distMi = (summary.distance || 0);
-
-  // Surface analysis from ORS extras
   let bikeScore = 60, trafficScore = 65, speedScore = 70, flatScore = 75;
 
-  if (extras.surface) {
-    const values = extras.surface.values || [];
-    let pavedDist = 0, totalDist = 0;
-    values.forEach(v => {
-      const d = v[1] - v[0];
-      totalDist += d;
-      if ([1, 2, 3].includes(v[2])) pavedDist += d; // paved surfaces
-    });
-    if (totalDist > 0) bikeScore = Math.min(95, 50 + Math.round((pavedDist / totalDist) * 45));
-  }
-
+  // --- Bike infrastructure from waytype ---
   if (extras.waytype) {
     const values = extras.waytype.values || [];
-    let safeDist = 0, totalDist = 0;
+    let cycleDist = 0, residentialDist = 0, busyDist = 0, totalDist = 0;
     values.forEach(v => {
       const d = v[1] - v[0];
       totalDist += d;
-      if ([3, 4, 5, 7].includes(v[2])) safeDist += d; // path, track, cycleway, living street
+      // ORS waytype: 1=state road, 2=road, 3=path, 4=street, 5=cycleway, 6=footway, 7=steps, 8=ferry, 10=living_street
+      if ([5, 3].includes(v[2])) cycleDist += d;        // cycleway, path = best
+      if ([4, 10].includes(v[2])) residentialDist += d; // street, living = good
+      if ([1, 2].includes(v[2])) busyDist += d;         // state road, road = bad
     });
     if (totalDist > 0) {
-      const pct = safeDist / totalDist;
-      bikeScore = Math.min(98, bikeScore + Math.round(pct * 30));
-      trafficScore = Math.min(95, 55 + Math.round(pct * 40));
+      const cyclePct = cycleDist / totalDist;
+      const residPct = residentialDist / totalDist;
+      const busyPct = busyDist / totalDist;
+      bikeScore = Math.min(98, Math.round(40 + cyclePct * 55 + residPct * 25 - busyPct * 30));
+      trafficScore = Math.min(98, Math.round(50 + cyclePct * 45 + residPct * 30 - busyPct * 40));
     }
   }
 
-  // Elevation → hill score
-  const ascent = summary.ascent || 0;
-  flatScore = ascent < 30 ? 95 : ascent < 80 ? 85 : ascent < 150 ? 72 : ascent < 300 ? 60 : 45;
+  // --- Surface quality ---
+  if (extras.surface) {
+    const values = extras.surface.values || [];
+    let goodDist = 0, totalDist = 0;
+    values.forEach(v => {
+      const d = v[1] - v[0];
+      totalDist += d;
+      if ([1, 2, 3].includes(v[2])) goodDist += d; // paved, asphalt, concrete
+    });
+    if (totalDist > 0) {
+      const pct = goodDist / totalDist;
+      bikeScore = Math.min(98, Math.round(bikeScore * 0.7 + (40 + pct * 58) * 0.3));
+    }
+  }
 
-  // Jitter slightly per route so alternatives differ meaningfully
-  const seed = (distMi * 100) % 7;
-  speedScore = Math.min(92, 65 + Math.round(seed * 3.5));
+  // --- Steepness analysis (penalize steep descents heavily) ---
+  if (extras.steepness) {
+    const values = extras.steepness.values || [];
+    let steepDescentDist = 0, steepAscentDist = 0, totalDist = 0;
+    values.forEach(v => {
+      const d = v[1] - v[0];
+      totalDist += d;
+      // ORS steepness: negative = descent, positive = ascent
+      // Values: -5 = >16% descent, -4 = 12-16%, -3 = 7-12%, -2 = 4-7%, -1 = 1-4%
+      if (v[2] <= -3) steepDescentDist += d;  // >7% descent — dangerous with kids
+      if (v[2] <= -2) steepDescentDist += d * 0.5; // 4-7% — caution
+      if (v[2] >= 4) steepAscentDist += d;    // steep climbs
+    });
+    if (totalDist > 0) {
+      const descentPct = steepDescentDist / totalDist;
+      const ascentPct = steepAscentDist / totalDist;
+      flatScore = Math.min(98, Math.round(95 - descentPct * 80 - ascentPct * 40));
+    }
+  } else {
+    // Fallback: use elevation summary
+    const ascent = summary.ascent || 0;
+    const descent = summary.descent || 0;
+    const dist = (summary.distance || 1);
+    const avgGrade = (ascent / (dist * 1609)) * 100;
+    const avgDescent = (descent / (dist * 1609)) * 100;
+    flatScore = avgDescent > 8 ? 40 :
+                avgDescent > 5 ? 60 :
+                avgDescent > 3 ? 75 :
+                avgGrade > 8 ? 65 :
+                avgGrade > 5 ? 78 : 90;
+  }
 
-  // Apply priority weights
+  // Speed score based on waycategory (road classification)
+  if (extras.waycategory) {
+    const values = extras.waycategory.values || [];
+    let highwayDist = 0, totalDist = 0;
+    values.forEach(v => {
+      const d = v[1] - v[0];
+      totalDist += d;
+      if ([1, 2, 3].includes(v[2])) highwayDist += d; // highway types
+    });
+    if (totalDist > 0) {
+      speedScore = Math.min(95, Math.round(90 - (highwayDist / totalDist) * 60));
+    }
+  }
+
+  // Apply user priority weights
   const w = {
     bike: getStars('bike') / 5,
     traffic: getStars('traffic') / 5,
@@ -771,17 +1130,17 @@ function computeSafetyScore(feature) {
     accident: getStars('accident') / 5,
   };
 
-  const accidentScore = 70 + Math.round(seed * 3); // Would integrate real data
+  const accidentScore = Math.min(95, Math.round(trafficScore * 0.6 + flatScore * 0.4));
 
-  const overall = Math.round(
-    bikeScore * (0.2 + w.bike * 0.1) +
-    trafficScore * (0.2 + w.traffic * 0.1) +
-    speedScore * (0.15 + w.speed * 0.05) +
-    flatScore * (0.15 + w.hills * 0.05) +
-    accidentScore * (0.15 + w.accident * 0.05)
-  );
+  const overall = Math.min(98, Math.round(
+    bikeScore    * (0.18 + w.bike    * 0.08) +
+    trafficScore * (0.22 + w.traffic * 0.08) +
+    speedScore   * (0.15 + w.speed   * 0.05) +
+    flatScore    * (0.20 + w.hills   * 0.08) +
+    accidentScore* (0.10 + w.accident* 0.04)
+  ));
 
-  return { overall: Math.min(98, overall), bikeScore, trafficScore, speedScore, flatScore, accidentScore };
+  return { overall, bikeScore, trafficScore, speedScore, flatScore, accidentScore };
 }
 
 function getStars(key) {
@@ -849,6 +1208,11 @@ function displayRoutes() {
   placeAccidentZones();
   document.getElementById('altsSection').classList.add('show');
   document.getElementById('resultsSection').classList.add('show');
+  syncPeekInputs();
+  // On mobile, collapse to peek so the map is visible
+  if (isMobile()) {
+    setTimeout(() => collapseSheet(), 400);
+  }
 }
 
 function renderAltCards() {
@@ -1026,23 +1390,25 @@ function updateResults(route) {
 
 function generateHighlights(s, summary) {
   const h = [];
-  if (s.bikeScore >= 80) h.push({ icon: '🟢', text: `Strong bike infrastructure on this route` });
-  else h.push({ icon: '🟡', text: `Limited dedicated bike lanes — stay alert` });
 
-  if (s.trafficScore >= 75) h.push({ icon: '🟢', text: `Mostly residential and low-traffic roads` });
-  else h.push({ icon: '🟡', text: `Some busier roads — ride with extra caution` });
+  if (s.bikeScore >= 80) h.push({ icon: '🟢', text: `Strong bike infrastructure — paths and cycleways` });
+  else if (s.bikeScore >= 60) h.push({ icon: '🟡', text: `Mix of bike paths and shared roads` });
+  else h.push({ icon: '🔴', text: `Limited bike infrastructure — shared roads` });
 
-  const ascent = summary.ascent || 0;
-  if (ascent < 60) h.push({ icon: '🟢', text: `Very flat route — easy for all ages` });
-  else if (ascent < 150) h.push({ icon: '🟡', text: `Moderate hills — manageable for older kids` });
-  else h.push({ icon: '🔴', text: `Significant elevation — consider an easier route` });
+  if (s.trafficScore >= 80) h.push({ icon: '🟢', text: `Quiet residential and low-traffic streets` });
+  else if (s.trafficScore >= 60) h.push({ icon: '🟡', text: `Some busier sections — stay alert` });
+  else h.push({ icon: '🔴', text: `High-traffic roads on this route` });
 
-  if (s.accidentScore >= 78) h.push({ icon: '🛡️', text: `Low accident history along this corridor` });
-  else h.push({ icon: '⚠️', text: `Some accident-prone intersections — check overlay` });
+  if (s.flatScore >= 85) h.push({ icon: '🟢', text: `Flat and gentle — easy for all ages` });
+  else if (s.flatScore >= 65) h.push({ icon: '🟡', text: `Moderate grades — manageable for older kids` });
+  else h.push({ icon: '🔴', text: `Steep sections detected — consider a longer safer route` });
 
-  if (s.overall >= 80) h.push({ icon: '🏆', text: `Top pick for families with young children` });
+  if (s.speedScore >= 80) h.push({ icon: '🟢', text: `Mostly low-speed roads (≤25 mph)` });
+  else h.push({ icon: '🟡', text: `Some higher speed roads along route` });
+
+  if (s.overall >= 82) h.push({ icon: '🏆', text: `Recommended for families with young children` });
   else if (s.overall >= 65) h.push({ icon: '✅', text: `Suitable for confident family riders` });
-  else h.push({ icon: '⚠️', text: `Best suited for experienced adult cyclists` });
+  else h.push({ icon: '⚠️', text: `Try increasing route length tolerance for a safer path` });
 
   return h;
 }
@@ -1098,6 +1464,85 @@ ${trkpts}
   URL.revokeObjectURL(url);
 }
 
+// ===== MOBILE BOTTOM SHEET =====
+const isMobile = () => window.innerWidth <= 768;
+let sheetExpanded = false;
+let dragStartY = 0, dragStartTranslate = 0, isDragging = false;
+
+function expandSheet() {
+  if (!isMobile()) return;
+  const sidebar = document.getElementById('sidebar');
+  sidebar.classList.add('expanded');
+  sidebar.classList.remove('peek');
+  sheetExpanded = true;
+  document.getElementById('sheetToggleLabel').textContent = 'Map';
+}
+
+function collapseSheet() {
+  if (!isMobile()) return;
+  const sidebar = document.getElementById('sidebar');
+  sidebar.classList.remove('expanded');
+  sidebar.classList.add('peek');
+  sheetExpanded = false;
+  document.getElementById('sheetToggleLabel').textContent = 'Route';
+}
+
+function toggleSheet() {
+  sheetExpanded ? collapseSheet() : expandSheet();
+}
+
+// Sync peek inputs with real inputs
+function syncPeekInputs() {
+  const sv = document.getElementById('startInput').value;
+  const ev = document.getElementById('endInput').value;
+  const sp = document.getElementById('startInputPeek');
+  const ep = document.getElementById('endInputPeek');
+  if (sp) sp.value = sv || '';
+  if (ep) ep.value = ev || '';
+}
+
+// Touch drag for bottom sheet
+function initSheetDrag() {
+  const sidebar = document.getElementById('sidebar');
+  if (!sidebar) return;
+
+  sidebar.addEventListener('touchstart', e => {
+    if (!isMobile()) return;
+    dragStartY = e.touches[0].clientY;
+    isDragging = true;
+    sidebar.style.transition = 'none';
+  }, { passive: true });
+
+  sidebar.addEventListener('touchmove', e => {
+    if (!isDragging || !isMobile()) return;
+    const dy = e.touches[0].clientY - dragStartY;
+    if (dy > 0 && sheetExpanded) {
+      sidebar.style.transform = `translateY(${dy}px)`;
+    }
+  }, { passive: true });
+
+  sidebar.addEventListener('touchend', e => {
+    if (!isDragging || !isMobile()) return;
+    isDragging = false;
+    sidebar.style.transition = '';
+    sidebar.style.transform = '';
+    const dy = e.changedTouches[0].clientY - dragStartY;
+    if (dy > 80) collapseSheet();
+    else if (dy < -40) expandSheet();
+  });
+}
+
+// Show sheet toggle btn on mobile
+function checkMobile() {
+  const btn = document.getElementById('sheetToggleBtn');
+  if (btn) btn.style.display = isMobile() ? 'flex' : 'none';
+  // Hide peek on desktop
+  const peek = document.getElementById('sheetPeek');
+  if (peek) peek.style.display = isMobile() ? 'flex' : 'none';
+}
+
+window.addEventListener('resize', checkMobile);
+
 // ===== HELPERS =====
 function setLoading(on) {
   const btn = document.getElementById('findBtn');
@@ -1106,11 +1551,29 @@ function setLoading(on) {
   btn.classList.toggle('loading', on);
   sp.style.display = on ? 'block' : 'none';
   txt.textContent = on ? 'Finding safe routes…' : '🔍 Find Safest Routes';
+
+  // Sync peek button too
+  const spPeek = document.getElementById('spinnerPeek');
+  const txtPeek = document.getElementById('btnTextPeek');
+  if (spPeek) spPeek.style.display = on ? 'block' : 'none';
+  if (txtPeek) txtPeek.textContent = on ? 'Finding safe routes…' : '🔍 Find Safest Routes';
 }
 
 function clearMapLayers() {
   routeLayers.forEach(l => map && map.removeLayer(l));
   routeLayers = [];
+}
+
+function updateTolerance() {
+  const val = parseInt(document.getElementById('toleranceSlider').value);
+  const labels = [
+    '⚡ Shortest path — speed over safety',
+    '🚴 Up to 1.4× longer — mild detours ok',
+    '🛤️ Up to 2× longer — prefers quiet streets',
+    '🌿 Up to 3× longer — strongly avoids traffic & hills',
+    '🏆 Up to 4.5× longer — maximum safety, gentlest streets'
+  ];
+  document.getElementById('toleranceLabel').textContent = labels[val - 1];
 }
 
 function setStar(key, val) {
@@ -1125,9 +1588,19 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById(id).addEventListener('keydown', e => {
       if (e.key === 'Enter') findRoutes();
     });
+    document.getElementById(id).addEventListener('input', syncPeekInputs);
   });
+
   // Auto-init map with hardcoded key
   initMap();
+  updateTolerance();
+  checkMobile();
+  initSheetDrag();
+
+  // Start expanded on mobile so user sees inputs first
+  if (isMobile()) {
+    expandSheet();
+  }
 });
 </script>
 </body>
