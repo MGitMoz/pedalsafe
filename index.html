@@ -869,27 +869,10 @@ async function resolveCoords(which) {
 async function fetchORSRoutes() {
   const tolerance = parseInt(document.getElementById('toleranceSlider').value);
 
-  // cycling-electric profile has the best quietness/traffic weighting in ORS
-  // We use it for all 3 routes and vary the aggressiveness of safety params
   const profiles = [
-    {
-      profile: 'cycling-regular',
-      pref: 'recommended',
-      label: 'Safest Route', emoji: '🏆',
-      mode: 'safest'
-    },
-    {
-      profile: 'cycling-regular',
-      pref: 'recommended',
-      label: 'Balanced Route', emoji: '⚖️',
-      mode: 'balanced'
-    },
-    {
-      profile: 'cycling-regular',
-      pref: 'shortest',
-      label: 'Fastest Route', emoji: '⚡',
-      mode: 'fastest'
-    },
+    { profile: 'cycling-regular', label: 'Safest Route',   emoji: '🏆', mode: 'safest' },
+    { profile: 'cycling-regular', label: 'Balanced Route', emoji: '⚖️', mode: 'balanced' },
+    { profile: 'cycling-regular', label: 'Fastest Route',  emoji: '⚡', mode: 'fastest' },
   ];
 
   const results = await Promise.allSettled(profiles.map(p => fetchSingleRoute(p, tolerance)));
@@ -907,41 +890,60 @@ async function fetchORSRoutes() {
 }
 
 async function fetchSingleRoute(prof, tolerance) {
-  // quiet factor 0.0-1.0: higher = ORS takes much longer routes to stay on quiet streets
-  // This is the primary lever for making the route longer/safer with the tolerance slider
-  const quietByTolerance = [0.1, 0.3, 0.6, 0.85, 1.0];
-  const quietBase = quietByTolerance[tolerance - 1];
+  // Tolerance 1-5 maps to increasingly aggressive quiet/green weighting
+  // At high values ORS will take routes 2-4x longer to stay on quiet streets
+  const quietScale =  [0.05, 0.25, 0.55, 0.80, 1.0];
+  const quietBase = quietScale[tolerance - 1];
 
-  const quietness = prof.mode === 'safest'   ? quietBase
-                  : prof.mode === 'balanced'  ? quietBase * 0.5
-                  : 0.05;
+  // For safest route: avoid primary/secondary/trunk roads entirely at high tolerance
+  // These are the busy, high-traffic roads we want to stay off
+  const avoidTypes = ['highways', 'tollways', 'ferries'];
 
-  const greenness = prof.mode === 'fastest' ? 0.1
-                  : prof.mode === 'balanced' ? 0.5
-                  : Math.min(1.0, quietBase * 0.85);
+  let quietness, greenness, preference, avoidFeatures;
+
+  if (prof.mode === 'safest') {
+    quietness    = quietBase;           // 0.05 → 1.0 across slider
+    greenness    = Math.min(1.0, quietBase * 0.9);
+    preference   = 'recommended';
+    // At tolerance 4-5, also avoid primary/secondary roads
+    avoidFeatures = tolerance >= 4
+      ? [...avoidTypes, 'secondary_roads']
+      : avoidTypes;
+  } else if (prof.mode === 'balanced') {
+    quietness    = quietBase * 0.4;
+    greenness    = 0.4;
+    preference   = 'recommended';
+    avoidFeatures = avoidTypes;
+  } else {
+    // fastest: pure shortest path, minimal safety weighting
+    quietness    = 0.0;
+    greenness    = 0.0;
+    preference   = 'shortest';
+    avoidFeatures = ['highways', 'tollways'];
+  }
 
   const maxIncline = prof.mode === 'safest'
     ? (tolerance <= 2 ? 6 : tolerance <= 3 ? 8 : 10)
     : 15;
-
   const maxDecline = prof.mode === 'safest'
     ? (tolerance <= 2 ? 5 : tolerance <= 3 ? 6 : 8)
     : 12;
 
+  const weightings = {};
+  if (quietness > 0) weightings.quiet = { factor: quietness };
+  if (greenness > 0) weightings.green = { factor: greenness };
+
   const body = {
     coordinates: [startCoords, endCoords],
-    preference: prof.mode === 'fastest' ? 'shortest' : 'recommended',
+    preference,
     instructions: true,
     elevation: true,
     extra_info: ['surface', 'waytype', 'steepness'],
     units: 'mi',
     options: {
-      avoid_features: ['highways', 'tollways', 'ferries'],
+      avoid_features: avoidFeatures,
       profile_params: {
-        weightings: {
-          quiet: { factor: quietness },
-          green: { factor: greenness },
-        },
+        weightings,
         restrictions: {
           maximum_incline: maxIncline,
           maximum_decline: maxDecline,
@@ -953,10 +955,7 @@ async function fetchSingleRoute(prof, tolerance) {
   try {
     const res = await fetch(`https://api.openrouteservice.org/v2/directions/${prof.profile}/geojson`, {
       method: 'POST',
-      headers: {
-        'Authorization': orsApiKey,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Authorization': orsApiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
 
