@@ -866,19 +866,21 @@ async function resolveCoords(which) {
 }
 
 // ===== ORS API =====
-// ===== OVERPASS + WAYPOINT ROUTING ENGINE =====
+// ===== VALHALLA + OVERPASS ROUTING ENGINE =====
+// Valhalla handles sidewalks, contraflow cycling, and pedestrian/bike hybrid routing
+// Public instance: valhalla1.openstreetmap.de — free, no key required
 
-// Query Overpass for quiet cycling infrastructure near the route corridor
+const VALHALLA_BASE = 'https://valhalla1.openstreetmap.de';
+
+// ── Overpass: fetch quiet cycling infrastructure in the route corridor ──
 async function fetchQuietWaypoints(tolerance) {
   const [lng1, lat1] = startCoords;
   const [lng2, lat2] = endCoords;
 
-  // Build a bounding box that extends beyond the direct path
-  // At high tolerance, extend much further to find quiet corridors
   const extendFactor = [0.3, 0.6, 1.0, 1.6, 2.4][tolerance - 1];
   const latDiff = Math.abs(lat2 - lat1);
   const lngDiff = Math.abs(lng2 - lng1);
-  const pad = Math.max(latDiff, lngDiff, 0.02) * extendFactor;
+  const pad  = Math.max(latDiff, lngDiff, 0.02) * extendFactor;
 
   const south = Math.min(lat1, lat2) - pad;
   const north = Math.max(lat1, lat2) + pad;
@@ -886,18 +888,17 @@ async function fetchQuietWaypoints(tolerance) {
   const east  = Math.max(lng1, lng2) + pad;
   const bbox  = `${south},${west},${north},${east}`;
 
-  // Query for cycleways, bike paths, parks, and quiet residential streets
   const query = `
     [out:json][timeout:20];
     (
       way["highway"="cycleway"](${bbox});
       way["highway"="path"]["bicycle"="designated"](${bbox});
-      way["highway"="residential"]["maxspeed"~"^(5|10|15|20|25)$"](${bbox});
       way["highway"="living_street"](${bbox});
-      way["route"="bicycle"](${bbox});
-      node["amenity"="bicycle_parking"](${bbox});
+      way["highway"="residential"]["maxspeed"~"^(5|10|15|20|25)$"](${bbox});
+      way["highway"="footway"]["bicycle"="yes"](${bbox});
+      way["highway"="path"]["foot"="yes"]["bicycle"="yes"](${bbox});
     );
-    out center 40;
+    out center 50;
   `;
 
   try {
@@ -907,166 +908,174 @@ async function fetchQuietWaypoints(tolerance) {
     });
     if (!res.ok) return [];
     const data = await res.json();
-
-    // Extract center coords of each element
-    const pts = data.elements
+    return data.elements
       .filter(el => el.center || (el.lat && el.lon))
       .map(el => ({
         lng: el.center ? el.center.lon : el.lon,
         lat: el.center ? el.center.lat : el.lat,
-        type: el.tags?.highway || el.tags?.route || 'quiet'
+        type: el.tags?.highway || 'quiet'
       }));
-
-    return pts;
   } catch(e) {
     console.warn('Overpass error:', e);
     return [];
   }
 }
 
-// Geometric offset algorithm — pushes waypoints perpendicular to the direct line
-// to force routing through quieter areas away from the main corridor
+// ── Geometric offset: perpendicular waypoints away from direct line ──
 function generateOffsetWaypoints(tolerance, count) {
   const [lng1, lat1] = startCoords;
   const [lng2, lat2] = endCoords;
-
-  // Direction vector
-  const dLng = lng2 - lng1;
-  const dLat = lat2 - lat1;
-  const dist = Math.sqrt(dLng * dLng + dLat * dLat);
-
-  // Perpendicular unit vector (rotate 90 degrees)
-  const perpLng = -dLat / dist;
-  const perpLat =  dLng / dist;
-
-  // Offset scale increases dramatically with tolerance
-  // At tolerance 5, we push 80% of the route length sideways
+  const dLng = lng2 - lng1, dLat = lat2 - lat1;
+  const dist = Math.sqrt(dLng*dLng + dLat*dLat);
+  const perpLng = -dLat / dist, perpLat = dLng / dist;
   const offsetScale = [0.05, 0.15, 0.3, 0.55, 0.8][tolerance - 1];
   const offset = dist * offsetScale;
 
-  const waypoints = [];
-  for (let i = 1; i <= count; i++) {
-    const t = i / (count + 1); // position along route (0→1)
-
-    // Base point along direct line
-    const baseLng = lng1 + dLng * t;
-    const baseLat = lat1 + dLat * t;
-
-    // Alternate sides to create a winding quiet path
+  return Array.from({ length: count }, (_, i) => {
+    const t = (i + 1) / (count + 1);
     const side = (i % 2 === 0) ? 1 : -1;
-
-    // Taper offset toward start/end so it connects smoothly
     const taper = Math.sin(t * Math.PI);
-
-    waypoints.push([
-      baseLng + perpLng * offset * side * taper,
-      baseLat + perpLat * offset * side * taper
-    ]);
-  }
-  return waypoints;
+    return [lng1 + dLng*t + perpLng*offset*side*taper,
+            lat1 + dLat*t + perpLat*offset*side*taper];
+  });
 }
 
-// Score and select best quiet waypoints from Overpass results
-// to guide route through actual bike infrastructure
-function selectBestWaypoints(overpassPts, tolerance, count) {
-  if (!overpassPts.length) return [];
-
+// ── Select best Overpass points as waypoints ──
+function selectBestWaypoints(pts, tolerance, count) {
+  if (!pts.length) return [];
   const [lng1, lat1] = startCoords;
   const [lng2, lat2] = endCoords;
+  const dLng = lng2-lng1, dLat = lat2-lat1;
+  const dist2 = dLng*dLng + dLat*dLat;
+  const typePri = { cycleway:3, living_street:2, residential:1, footway:2, path:2 };
 
-  // Score each point by: proximity to route corridor + type priority
-  const typePriority = { cycleway: 3, living_street: 2, residential: 1, bicycle: 3, path: 2 };
-
-  const scored = overpassPts.map(pt => {
-    // How far is this point from the direct line?
-    const dLng = lng2 - lng1, dLat = lat2 - lat1;
-    const dist = Math.sqrt(dLng*dLng + dLat*dLat);
-    const t = Math.max(0, Math.min(1, ((pt.lng-lng1)*dLng + (pt.lat-lat1)*dLat) / (dist*dist)));
-    const closestLng = lng1 + t * dLng;
-    const closestLat = lat1 + t * dLat;
-    const perpDist = Math.sqrt((pt.lng-closestLng)**2 + (pt.lat-closestLat)**2);
-
-    // Prefer points that are slightly off the direct line (not ON it, and not too far)
-    const idealDist = 0.008 * tolerance;
-    const distScore = 1 - Math.abs(perpDist - idealDist) / (idealDist * 3);
-    const typeScore = (typePriority[pt.type] || 1) / 3;
-    const progressScore = t > 0.1 && t < 0.9 ? 1 : 0.3; // prefer mid-route points
-
-    return { ...pt, score: distScore * 0.5 + typeScore * 0.3 + progressScore * 0.2, t };
+  const scored = pts.map(pt => {
+    const t = Math.max(0, Math.min(1, ((pt.lng-lng1)*dLng + (pt.lat-lat1)*dLat) / dist2));
+    const cx = lng1+t*dLng, cy = lat1+t*dLat;
+    const perp = Math.sqrt((pt.lng-cx)**2 + (pt.lat-cy)**2);
+    const ideal = 0.008 * tolerance;
+    const ds = 1 - Math.abs(perp - ideal) / (ideal * 3);
+    const ts = (typePri[pt.type] || 1) / 3;
+    const ps = t > 0.1 && t < 0.9 ? 1 : 0.3;
+    return { ...pt, score: ds*0.5 + ts*0.3 + ps*0.2, t };
   });
 
-  // Sort by score, then pick spatially distributed points
   scored.sort((a, b) => b.score - a.score);
-
-  const selected = [];
+  const sel = [];
   for (const pt of scored) {
-    if (selected.length >= count) break;
-    // Avoid clustering — ensure min spacing between waypoints
-    const tooClose = selected.some(s => Math.abs(s.t - pt.t) < 0.15);
-    if (!tooClose) selected.push(pt);
+    if (sel.length >= count) break;
+    if (!sel.some(s => Math.abs(s.t - pt.t) < 0.15)) sel.push(pt);
   }
-
-  // Sort selected by progress along route
-  selected.sort((a, b) => a.t - b.t);
-  return selected.map(p => [p.lng, p.lat]);
+  return sel.sort((a,b) => a.t - b.t).map(p => [p.lng, p.lat]);
 }
 
-// Combine Overpass + offset waypoints based on tolerance
+// ── Combine Overpass + offset ──
 async function buildSafeWaypoints(tolerance, mode) {
-  if (mode === 'fastest') return []; // fastest = direct, no waypoints
+  if (mode === 'fastest') return [];
+  const count = [0, 1, 2, 3, 4][tolerance - 1];
+  if (count === 0) return [];
 
-  const waypointCount = [0, 1, 2, 3, 4][tolerance - 1];
-  if (waypointCount === 0) return [];
-
-  // Run Overpass and offset in parallel
   const [overpassPts, offsetWpts] = await Promise.all([
     fetchQuietWaypoints(tolerance),
-    Promise.resolve(generateOffsetWaypoints(tolerance, waypointCount))
+    Promise.resolve(generateOffsetWaypoints(tolerance, count))
   ]);
 
   console.log(`Overpass found ${overpassPts.length} quiet points`);
+  const overpassWpts = selectBestWaypoints(overpassPts, tolerance, count);
 
-  // Try Overpass first; blend with offset if not enough good points
-  const overpassWpts = selectBestWaypoints(overpassPts, tolerance, waypointCount);
+  if (overpassWpts.length >= count) return overpassWpts;
+  if (overpassWpts.length > 0) {
+    const fill = generateOffsetWaypoints(tolerance, count - overpassWpts.length);
+    return [...overpassWpts, ...fill].sort((a, b) => {
+      const [l1,la1] = startCoords;
+      const tA = ((a[0]-l1) + (a[1]-la1));
+      const tB = ((b[0]-l1) + (b[1]-la1));
+      return tA - tB;
+    });
+  }
+  return offsetWpts;
+}
 
-  if (overpassWpts.length >= waypointCount) {
-    console.log('Using Overpass waypoints:', overpassWpts);
-    return overpassWpts;
-  } else if (overpassWpts.length > 0) {
-    // Blend: use what Overpass found + fill rest with offset
-    const needed = waypointCount - overpassWpts.length;
-    const fillOffset = generateOffsetWaypoints(tolerance, needed);
-    const blended = [...overpassWpts, ...fillOffset]
-      .map((wp, i) => ({ wp, t: i / waypointCount }))
-      .sort((a, b) => a.t - b.t)
-      .map(x => x.wp);
-    console.log('Using blended waypoints:', blended);
-    return blended;
+// ── Build Valhalla costing options per mode ──
+function valhallaCosting(mode, tolerance) {
+  // use_living_streets, use_tracks, use_sidewalks are 0.0–1.0
+  // use_roads 0.0 = avoid roads, 1.0 = use roads freely
+  // top_speed limits max road speed considered
+  const safeLevel = (tolerance - 1) / 4; // 0.0 → 1.0
+
+  if (mode === 'safest') {
+    return {
+      costing: 'bicycle',
+      costing_options: {
+        bicycle: {
+          bicycle_type: 'hybrid',
+          // Strongly prefer off-road, paths, sidewalks
+          use_roads:         Math.max(0.1, 0.6 - safeLevel * 0.5),
+          use_living_streets: 1.0,
+          use_tracks:        1.0,
+          use_sidewalks:     1.0,   // ← key: Valhalla will route on sidewalks
+          // Avoid fast roads
+          avoid_bad_surfaces: safeLevel * 0.3,
+          // Hill avoidance increases with tolerance
+          use_hills:         Math.max(0.1, 0.5 - safeLevel * 0.4),
+          // Allow contraflow on one-way streets if there's a sidewalk
+          shortest:          false,
+        }
+      }
+    };
+  } else if (mode === 'balanced') {
+    return {
+      costing: 'bicycle',
+      costing_options: {
+        bicycle: {
+          bicycle_type: 'hybrid',
+          use_roads:          0.6,
+          use_living_streets: 0.8,
+          use_tracks:         0.7,
+          use_sidewalks:      0.6,
+          use_hills:          0.4,
+          shortest:           false,
+        }
+      }
+    };
   } else {
-    console.log('Using offset waypoints:', offsetWpts);
-    return offsetWpts;
+    // fastest: direct cycling, roads fine, no sidewalk preference
+    return {
+      costing: 'bicycle',
+      costing_options: {
+        bicycle: {
+          bicycle_type: 'road',
+          use_roads:          1.0,
+          use_living_streets: 0.5,
+          use_tracks:         0.3,
+          use_sidewalks:      0.2,
+          use_hills:          0.8,
+          shortest:           true,
+        }
+      }
+    };
   }
 }
 
+// ── Main fetch ──
 async function fetchORSRoutes() {
   const tolerance = parseInt(document.getElementById('toleranceSlider').value);
 
   const profiles = [
-    { profile: 'cycling-regular', label: 'Safest Route',   emoji: '🏆', mode: 'safest' },
-    { profile: 'cycling-regular', label: 'Balanced Route', emoji: '⚖️', mode: 'balanced' },
-    { profile: 'cycling-regular', label: 'Fastest Route',  emoji: '⚡', mode: 'fastest' },
+    { label: 'Safest Route',   emoji: '🏆', mode: 'safest'   },
+    { label: 'Balanced Route', emoji: '⚖️', mode: 'balanced' },
+    { label: 'Fastest Route',  emoji: '⚡', mode: 'fastest'  },
   ];
 
-  // Pre-fetch waypoints for safest + balanced in parallel
-  const [safeWpts, balancedWpts] = await Promise.all([
+  // Fetch Overpass waypoints for safest + balanced in parallel
+  const [safeWpts, balWpts] = await Promise.all([
     buildSafeWaypoints(tolerance, 'safest'),
     buildSafeWaypoints(Math.max(1, tolerance - 1), 'balanced'),
   ]);
-
-  const waypointMap = { safest: safeWpts, balanced: balancedWpts, fastest: [] };
+  const wptMap = { safest: safeWpts, balanced: balWpts, fastest: [] };
 
   const results = await Promise.allSettled(
-    profiles.map(p => fetchSingleRoute(p, tolerance, waypointMap[p.mode]))
+    profiles.map(p => fetchValhallaRoute(p, tolerance, wptMap[p.mode]))
   );
 
   routesData = results
@@ -1081,109 +1090,111 @@ async function fetchORSRoutes() {
   displayRoutes();
 }
 
-async function fetchSingleRoute(prof, tolerance, waypoints = []) {
-  const quietScale = [0.05, 0.25, 0.55, 0.80, 1.0];
-  const quietBase  = quietScale[tolerance - 1];
+async function fetchValhallaRoute(prof, tolerance, waypoints = []) {
+  const costing = valhallaCosting(prof.mode, tolerance);
 
-  let quietness, greenness, preference, avoidFeatures;
-
-  if (prof.mode === 'safest') {
-    quietness     = quietBase;
-    greenness     = Math.min(1.0, quietBase * 0.9);
-    preference    = 'recommended';
-    avoidFeatures = tolerance >= 4
-      ? ['highways', 'tollways', 'ferries', 'secondary_roads']
-      : ['highways', 'tollways', 'ferries'];
-  } else if (prof.mode === 'balanced') {
-    quietness     = quietBase * 0.4;
-    greenness     = 0.4;
-    preference    = 'recommended';
-    avoidFeatures = ['highways', 'tollways', 'ferries'];
-  } else {
-    quietness     = 0.0;
-    greenness     = 0.0;
-    preference    = 'shortest';
-    avoidFeatures = ['highways', 'tollways'];
-  }
-
-  const maxIncline = prof.mode === 'safest' ? (tolerance <= 2 ? 6 : tolerance <= 3 ? 8 : 10) : 15;
-  const maxDecline = prof.mode === 'safest' ? (tolerance <= 2 ? 5 : tolerance <= 3 ? 6 : 8)  : 12;
-
-  const weightings = {};
-  if (quietness > 0) weightings.quiet = { factor: quietness };
-  if (greenness > 0) weightings.green = { factor: greenness };
-
-  // Build coordinate list: start → waypoints → end
-  const coordinates = [startCoords, ...waypoints, endCoords];
+  // Build locations: start → waypoints → end
+  // Valhalla uses {lon, lat} objects; waypoints are "through" locations
+  const locations = [
+    { lon: startCoords[0], lat: startCoords[1], type: 'break' },
+    ...waypoints.map(w => ({ lon: w[0], lat: w[1], type: 'through' })),
+    { lon: endCoords[0],   lat: endCoords[1],   type: 'break'  },
+  ];
 
   const body = {
-    coordinates,
-    preference,
-    instructions: true,
-    elevation: true,
-    extra_info: ['surface', 'waytype', 'steepness'],
-    units: 'mi',
-    options: {
-      avoid_features: avoidFeatures,
-      profile_params: {
-        weightings,
-        restrictions: { maximum_incline: maxIncline, maximum_decline: maxDecline }
-      }
-    }
+    locations,
+    ...costing,
+    directions_options: { units: 'miles' },
+    elevation_interval: 30,
   };
 
   try {
-    const res = await fetch(`https://api.openrouteservice.org/v2/directions/${prof.profile}/geojson`, {
+    const res = await fetch(`${VALHALLA_BASE}/route`, {
       method: 'POST',
-      headers: { 'Authorization': orsApiKey, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
 
     if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      console.error('ORS error:', res.status, errText);
-      // Fallback: retry without waypoints
+      const err = await res.text().catch(() => '');
+      console.error('Valhalla error:', res.status, err);
+      // Retry without waypoints if they caused the error
       if (waypoints.length > 0) {
         console.log('Retrying without waypoints...');
-        return fetchSingleRoute(prof, tolerance, []);
+        return fetchValhallaRoute(prof, tolerance, []);
       }
-      return fetchSingleRouteFallback(prof);
+      return null;
     }
-    const data = await res.json().catch(() => null);
-    if (!data?.features?.length) return null;
-    return data.features[0];
-  } catch(e) {
-    console.warn('Fetch error:', e);
-    return fetchSingleRouteFallback(prof);
-  }
-}
 
-async function fetchSingleRouteFallback(prof) {
-  const body = {
-    coordinates: [startCoords, endCoords],
-    preference: prof.mode === 'fastest' ? 'shortest' : 'recommended',
-    instructions: true,
-    elevation: true,
-    units: 'mi'
-  };
-  try {
-    const res = await fetch(`https://api.openrouteservice.org/v2/directions/${prof.profile}/geojson`, {
-      method: 'POST',
-      headers: { 'Authorization': orsApiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    const text = await res.text();
-    console.log('Fallback ORS response:', res.status, text.slice(0, 200));
-    if (!res.ok) return null;
-    const data = JSON.parse(text);
-    if (!data?.features?.length) return null;
-    return data.features[0];
+    const data = await res.json().catch(() => null);
+    if (!data?.trip) return null;
+
+    // Convert Valhalla response to GeoJSON-like format matching our existing display code
+    return valhallaToGeoJSON(data, prof);
+
   } catch(e) {
-    console.error('Fallback error:', e);
+    console.warn('Valhalla fetch error:', e);
+    if (waypoints.length > 0) return fetchValhallaRoute(prof, tolerance, []);
     return null;
   }
 }
 
+// ── Convert Valhalla trip response → GeoJSON Feature (matching ORS shape) ──
+function valhallaToGeoJSON(data, prof) {
+  const trip = data.trip;
+  const legs = trip.legs || [];
+
+  // Decode all polylines into coordinates [lng, lat, elev?]
+  const coords = [];
+  legs.forEach(leg => {
+    const decoded = decodePolyline(leg.shape);
+    coords.push(...decoded);
+  });
+
+  // Build summary stats
+  const totalDist = trip.summary?.length || 0;       // miles
+  const totalTime = trip.summary?.time   || 0;       // seconds
+  const ascent    = legs.reduce((s, l) => s + (l.summary?.max_grade > 0 ? l.summary.length * l.summary.max_grade * 52.8 : 0), 0);
+
+  return {
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: coords },
+    properties: {
+      summary: {
+        distance: totalDist,
+        duration: totalTime,
+        ascent:   Math.round(ascent),
+      },
+      segments: legs.map(l => ({
+        distance: { value: l.summary?.length * 1609, text: (l.summary?.length || 0).toFixed(1) + ' mi' },
+        duration: { value: l.summary?.time, text: Math.round((l.summary?.time||0)/60) + ' min' },
+        steps: (l.maneuvers || []).map(m => ({
+          distance: { value: m.length * 1609, text: (m.length||0).toFixed(2) + ' mi' },
+          instructions: m.instruction || '',
+        }))
+      })),
+      extras: {}
+    }
+  };
+}
+
+// ── Valhalla uses encoded polyline6 (precision 6) ──
+function decodePolyline(encoded) {
+  const coords = [];
+  let idx = 0, lat = 0, lng = 0;
+  while (idx < encoded.length) {
+    let b, shift = 0, result = 0;
+    do { b = encoded.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    shift = 0; result = 0;
+    do { b = encoded.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+    coords.push([lng / 1e6, lat / 1e6]);
+  }
+  return coords;
+}
+
+// ===== SAFETY SCORING ENGINE =====
 // ===== SAFETY SCORING ENGINE =====
 // ===== SAFETY SCORING ENGINE =====
 function computeSafetyScore(feature) {
