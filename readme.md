@@ -28,7 +28,7 @@ Sign up at [openrouteservice.org](https://openrouteservice.org/dev/#/signup) —
 ### 2. Open the App
 Open `pedalsafe.html` in any modern browser, or visit the live version at:
 ```
-https://yourusername.github.io/pedalsafe
+https://MGitMoz.github.io/pedalsafe
 ```
 
 ### 3. Activate & Route
