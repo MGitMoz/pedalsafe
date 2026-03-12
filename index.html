@@ -907,7 +907,18 @@ async function fetchORSRoutes() {
 }
 
 async function fetchSingleRoute(prof, tolerance) {
-  const detourFactors = [1.05, 1.4, 2.0, 3.0, 4.5];
+  // quiet factor 0.0-1.0: higher = ORS takes much longer routes to stay on quiet streets
+  // This is the primary lever for making the route longer/safer with the tolerance slider
+  const quietByTolerance = [0.1, 0.3, 0.6, 0.85, 1.0];
+  const quietBase = quietByTolerance[tolerance - 1];
+
+  const quietness = prof.mode === 'safest'   ? quietBase
+                  : prof.mode === 'balanced'  ? quietBase * 0.5
+                  : 0.05;
+
+  const greenness = prof.mode === 'fastest' ? 0.1
+                  : prof.mode === 'balanced' ? 0.5
+                  : Math.min(1.0, quietBase * 0.85);
 
   const maxIncline = prof.mode === 'safest'
     ? (tolerance <= 2 ? 6 : tolerance <= 3 ? 8 : 10)
@@ -917,13 +928,9 @@ async function fetchSingleRoute(prof, tolerance) {
     ? (tolerance <= 2 ? 5 : tolerance <= 3 ? 6 : 8)
     : 12;
 
-  const quietness = prof.mode === 'safest'
-    ? (tolerance <= 2 ? 0.8 : tolerance <= 3 ? 0.9 : 1.0)
-    : prof.mode === 'balanced' ? 0.6 : 0.2;
-
   const body = {
     coordinates: [startCoords, endCoords],
-    preference: prof.pref,
+    preference: prof.mode === 'fastest' ? 'shortest' : 'recommended',
     instructions: true,
     elevation: true,
     extra_info: ['surface', 'waytype', 'steepness'],
@@ -933,7 +940,7 @@ async function fetchSingleRoute(prof, tolerance) {
       profile_params: {
         weightings: {
           quiet: { factor: quietness },
-          green: { factor: prof.mode === 'fastest' ? 0.3 : 0.8 },
+          green: { factor: greenness },
         },
         restrictions: {
           maximum_incline: maxIncline,
@@ -942,18 +949,6 @@ async function fetchSingleRoute(prof, tolerance) {
       }
     }
   };
-
-  // Midpoint waypoint trick for max-safety routes
-  if (prof.mode === 'safest' && tolerance >= 4 && startCoords && endCoords) {
-    const midLng = (startCoords[0] + endCoords[0]) / 2;
-    const midLat = (startCoords[1] + endCoords[1]) / 2;
-    const offsetScale = 0.002 * tolerance;
-    body.coordinates = [
-      startCoords,
-      [midLng + offsetScale, midLat + offsetScale],
-      endCoords
-    ];
-  }
 
   try {
     const res = await fetch(`https://api.openrouteservice.org/v2/directions/${prof.profile}/geojson`, {
@@ -967,7 +962,7 @@ async function fetchSingleRoute(prof, tolerance) {
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      console.error('ORS 400 details:', errText);
+      console.error('ORS error:', res.status, errText);
       if (res.status === 400 || res.status === 404) return fetchSingleRouteFallback(prof);
       return null;
     }
