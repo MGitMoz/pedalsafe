@@ -866,6 +866,188 @@ async function resolveCoords(which) {
 }
 
 // ===== ORS API =====
+// ===== OVERPASS + WAYPOINT ROUTING ENGINE =====
+
+// Query Overpass for quiet cycling infrastructure near the route corridor
+async function fetchQuietWaypoints(tolerance) {
+  const [lng1, lat1] = startCoords;
+  const [lng2, lat2] = endCoords;
+
+  // Build a bounding box that extends beyond the direct path
+  // At high tolerance, extend much further to find quiet corridors
+  const extendFactor = [0.3, 0.6, 1.0, 1.6, 2.4][tolerance - 1];
+  const latDiff = Math.abs(lat2 - lat1);
+  const lngDiff = Math.abs(lng2 - lng1);
+  const pad = Math.max(latDiff, lngDiff, 0.02) * extendFactor;
+
+  const south = Math.min(lat1, lat2) - pad;
+  const north = Math.max(lat1, lat2) + pad;
+  const west  = Math.min(lng1, lng2) - pad;
+  const east  = Math.max(lng1, lng2) + pad;
+  const bbox  = `${south},${west},${north},${east}`;
+
+  // Query for cycleways, bike paths, parks, and quiet residential streets
+  const query = `
+    [out:json][timeout:20];
+    (
+      way["highway"="cycleway"](${bbox});
+      way["highway"="path"]["bicycle"="designated"](${bbox});
+      way["highway"="residential"]["maxspeed"~"^(5|10|15|20|25)$"](${bbox});
+      way["highway"="living_street"](${bbox});
+      way["route"="bicycle"](${bbox});
+      node["amenity"="bicycle_parking"](${bbox});
+    );
+    out center 40;
+  `;
+
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: 'data=' + encodeURIComponent(query)
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+
+    // Extract center coords of each element
+    const pts = data.elements
+      .filter(el => el.center || (el.lat && el.lon))
+      .map(el => ({
+        lng: el.center ? el.center.lon : el.lon,
+        lat: el.center ? el.center.lat : el.lat,
+        type: el.tags?.highway || el.tags?.route || 'quiet'
+      }));
+
+    return pts;
+  } catch(e) {
+    console.warn('Overpass error:', e);
+    return [];
+  }
+}
+
+// Geometric offset algorithm — pushes waypoints perpendicular to the direct line
+// to force routing through quieter areas away from the main corridor
+function generateOffsetWaypoints(tolerance, count) {
+  const [lng1, lat1] = startCoords;
+  const [lng2, lat2] = endCoords;
+
+  // Direction vector
+  const dLng = lng2 - lng1;
+  const dLat = lat2 - lat1;
+  const dist = Math.sqrt(dLng * dLng + dLat * dLat);
+
+  // Perpendicular unit vector (rotate 90 degrees)
+  const perpLng = -dLat / dist;
+  const perpLat =  dLng / dist;
+
+  // Offset scale increases dramatically with tolerance
+  // At tolerance 5, we push 80% of the route length sideways
+  const offsetScale = [0.05, 0.15, 0.3, 0.55, 0.8][tolerance - 1];
+  const offset = dist * offsetScale;
+
+  const waypoints = [];
+  for (let i = 1; i <= count; i++) {
+    const t = i / (count + 1); // position along route (0→1)
+
+    // Base point along direct line
+    const baseLng = lng1 + dLng * t;
+    const baseLat = lat1 + dLat * t;
+
+    // Alternate sides to create a winding quiet path
+    const side = (i % 2 === 0) ? 1 : -1;
+
+    // Taper offset toward start/end so it connects smoothly
+    const taper = Math.sin(t * Math.PI);
+
+    waypoints.push([
+      baseLng + perpLng * offset * side * taper,
+      baseLat + perpLat * offset * side * taper
+    ]);
+  }
+  return waypoints;
+}
+
+// Score and select best quiet waypoints from Overpass results
+// to guide route through actual bike infrastructure
+function selectBestWaypoints(overpassPts, tolerance, count) {
+  if (!overpassPts.length) return [];
+
+  const [lng1, lat1] = startCoords;
+  const [lng2, lat2] = endCoords;
+
+  // Score each point by: proximity to route corridor + type priority
+  const typePriority = { cycleway: 3, living_street: 2, residential: 1, bicycle: 3, path: 2 };
+
+  const scored = overpassPts.map(pt => {
+    // How far is this point from the direct line?
+    const dLng = lng2 - lng1, dLat = lat2 - lat1;
+    const dist = Math.sqrt(dLng*dLng + dLat*dLat);
+    const t = Math.max(0, Math.min(1, ((pt.lng-lng1)*dLng + (pt.lat-lat1)*dLat) / (dist*dist)));
+    const closestLng = lng1 + t * dLng;
+    const closestLat = lat1 + t * dLat;
+    const perpDist = Math.sqrt((pt.lng-closestLng)**2 + (pt.lat-closestLat)**2);
+
+    // Prefer points that are slightly off the direct line (not ON it, and not too far)
+    const idealDist = 0.008 * tolerance;
+    const distScore = 1 - Math.abs(perpDist - idealDist) / (idealDist * 3);
+    const typeScore = (typePriority[pt.type] || 1) / 3;
+    const progressScore = t > 0.1 && t < 0.9 ? 1 : 0.3; // prefer mid-route points
+
+    return { ...pt, score: distScore * 0.5 + typeScore * 0.3 + progressScore * 0.2, t };
+  });
+
+  // Sort by score, then pick spatially distributed points
+  scored.sort((a, b) => b.score - a.score);
+
+  const selected = [];
+  for (const pt of scored) {
+    if (selected.length >= count) break;
+    // Avoid clustering — ensure min spacing between waypoints
+    const tooClose = selected.some(s => Math.abs(s.t - pt.t) < 0.15);
+    if (!tooClose) selected.push(pt);
+  }
+
+  // Sort selected by progress along route
+  selected.sort((a, b) => a.t - b.t);
+  return selected.map(p => [p.lng, p.lat]);
+}
+
+// Combine Overpass + offset waypoints based on tolerance
+async function buildSafeWaypoints(tolerance, mode) {
+  if (mode === 'fastest') return []; // fastest = direct, no waypoints
+
+  const waypointCount = [0, 1, 2, 3, 4][tolerance - 1];
+  if (waypointCount === 0) return [];
+
+  // Run Overpass and offset in parallel
+  const [overpassPts, offsetWpts] = await Promise.all([
+    fetchQuietWaypoints(tolerance),
+    Promise.resolve(generateOffsetWaypoints(tolerance, waypointCount))
+  ]);
+
+  console.log(`Overpass found ${overpassPts.length} quiet points`);
+
+  // Try Overpass first; blend with offset if not enough good points
+  const overpassWpts = selectBestWaypoints(overpassPts, tolerance, waypointCount);
+
+  if (overpassWpts.length >= waypointCount) {
+    console.log('Using Overpass waypoints:', overpassWpts);
+    return overpassWpts;
+  } else if (overpassWpts.length > 0) {
+    // Blend: use what Overpass found + fill rest with offset
+    const needed = waypointCount - overpassWpts.length;
+    const fillOffset = generateOffsetWaypoints(tolerance, needed);
+    const blended = [...overpassWpts, ...fillOffset]
+      .map((wp, i) => ({ wp, t: i / waypointCount }))
+      .sort((a, b) => a.t - b.t)
+      .map(x => x.wp);
+    console.log('Using blended waypoints:', blended);
+    return blended;
+  } else {
+    console.log('Using offset waypoints:', offsetWpts);
+    return offsetWpts;
+  }
+}
+
 async function fetchORSRoutes() {
   const tolerance = parseInt(document.getElementById('toleranceSlider').value);
 
@@ -875,7 +1057,17 @@ async function fetchORSRoutes() {
     { profile: 'cycling-regular', label: 'Fastest Route',  emoji: '⚡', mode: 'fastest' },
   ];
 
-  const results = await Promise.allSettled(profiles.map(p => fetchSingleRoute(p, tolerance)));
+  // Pre-fetch waypoints for safest + balanced in parallel
+  const [safeWpts, balancedWpts] = await Promise.all([
+    buildSafeWaypoints(tolerance, 'safest'),
+    buildSafeWaypoints(Math.max(1, tolerance - 1), 'balanced'),
+  ]);
+
+  const waypointMap = { safest: safeWpts, balanced: balancedWpts, fastest: [] };
+
+  const results = await Promise.allSettled(
+    profiles.map(p => fetchSingleRoute(p, tolerance, waypointMap[p.mode]))
+  );
 
   routesData = results
     .filter(r => r.status === 'fulfilled' && r.value)
@@ -889,52 +1081,43 @@ async function fetchORSRoutes() {
   displayRoutes();
 }
 
-async function fetchSingleRoute(prof, tolerance) {
-  // Tolerance 1-5 maps to increasingly aggressive quiet/green weighting
-  // At high values ORS will take routes 2-4x longer to stay on quiet streets
-  const quietScale =  [0.05, 0.25, 0.55, 0.80, 1.0];
-  const quietBase = quietScale[tolerance - 1];
-
-  // For safest route: avoid primary/secondary/trunk roads entirely at high tolerance
-  // These are the busy, high-traffic roads we want to stay off
-  const avoidTypes = ['highways', 'tollways', 'ferries'];
+async function fetchSingleRoute(prof, tolerance, waypoints = []) {
+  const quietScale = [0.05, 0.25, 0.55, 0.80, 1.0];
+  const quietBase  = quietScale[tolerance - 1];
 
   let quietness, greenness, preference, avoidFeatures;
 
   if (prof.mode === 'safest') {
-    quietness    = quietBase;           // 0.05 → 1.0 across slider
-    greenness    = Math.min(1.0, quietBase * 0.9);
-    preference   = 'recommended';
-    // At tolerance 4-5, also avoid primary/secondary roads
+    quietness     = quietBase;
+    greenness     = Math.min(1.0, quietBase * 0.9);
+    preference    = 'recommended';
     avoidFeatures = tolerance >= 4
-      ? [...avoidTypes, 'secondary_roads']
-      : avoidTypes;
+      ? ['highways', 'tollways', 'ferries', 'secondary_roads']
+      : ['highways', 'tollways', 'ferries'];
   } else if (prof.mode === 'balanced') {
-    quietness    = quietBase * 0.4;
-    greenness    = 0.4;
-    preference   = 'recommended';
-    avoidFeatures = avoidTypes;
+    quietness     = quietBase * 0.4;
+    greenness     = 0.4;
+    preference    = 'recommended';
+    avoidFeatures = ['highways', 'tollways', 'ferries'];
   } else {
-    // fastest: pure shortest path, minimal safety weighting
-    quietness    = 0.0;
-    greenness    = 0.0;
-    preference   = 'shortest';
+    quietness     = 0.0;
+    greenness     = 0.0;
+    preference    = 'shortest';
     avoidFeatures = ['highways', 'tollways'];
   }
 
-  const maxIncline = prof.mode === 'safest'
-    ? (tolerance <= 2 ? 6 : tolerance <= 3 ? 8 : 10)
-    : 15;
-  const maxDecline = prof.mode === 'safest'
-    ? (tolerance <= 2 ? 5 : tolerance <= 3 ? 6 : 8)
-    : 12;
+  const maxIncline = prof.mode === 'safest' ? (tolerance <= 2 ? 6 : tolerance <= 3 ? 8 : 10) : 15;
+  const maxDecline = prof.mode === 'safest' ? (tolerance <= 2 ? 5 : tolerance <= 3 ? 6 : 8)  : 12;
 
   const weightings = {};
   if (quietness > 0) weightings.quiet = { factor: quietness };
   if (greenness > 0) weightings.green = { factor: greenness };
 
+  // Build coordinate list: start → waypoints → end
+  const coordinates = [startCoords, ...waypoints, endCoords];
+
   const body = {
-    coordinates: [startCoords, endCoords],
+    coordinates,
     preference,
     instructions: true,
     elevation: true,
@@ -944,10 +1127,7 @@ async function fetchSingleRoute(prof, tolerance) {
       avoid_features: avoidFeatures,
       profile_params: {
         weightings,
-        restrictions: {
-          maximum_incline: maxIncline,
-          maximum_decline: maxDecline,
-        }
+        restrictions: { maximum_incline: maxIncline, maximum_decline: maxDecline }
       }
     }
   };
@@ -962,8 +1142,12 @@ async function fetchSingleRoute(prof, tolerance) {
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       console.error('ORS error:', res.status, errText);
-      if (res.status === 400 || res.status === 404) return fetchSingleRouteFallback(prof);
-      return null;
+      // Fallback: retry without waypoints
+      if (waypoints.length > 0) {
+        console.log('Retrying without waypoints...');
+        return fetchSingleRoute(prof, tolerance, []);
+      }
+      return fetchSingleRouteFallback(prof);
     }
     const data = await res.json().catch(() => null);
     if (!data?.features?.length) return null;
@@ -982,7 +1166,6 @@ async function fetchSingleRouteFallback(prof) {
     elevation: true,
     units: 'mi'
   };
-
   try {
     const res = await fetch(`https://api.openrouteservice.org/v2/directions/${prof.profile}/geojson`, {
       method: 'POST',
@@ -990,7 +1173,7 @@ async function fetchSingleRouteFallback(prof) {
       body: JSON.stringify(body)
     });
     const text = await res.text();
-    console.log('Fallback ORS response:', res.status, text);
+    console.log('Fallback ORS response:', res.status, text.slice(0, 200));
     if (!res.ok) return null;
     const data = JSON.parse(text);
     if (!data?.features?.length) return null;
@@ -1001,6 +1184,7 @@ async function fetchSingleRouteFallback(prof) {
   }
 }
 
+// ===== SAFETY SCORING ENGINE =====
 // ===== SAFETY SCORING ENGINE =====
 function computeSafetyScore(feature) {
   const props = feature.properties || {};
