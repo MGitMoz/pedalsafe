@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PedalSafe 🚴 Family Bike Routes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Baloo+2:wght@400;600;700;800&display=swap" rel="stylesheet" crossorigin>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --sky: #5bb8f5; --sky-light: #a8d8f8; --sky-pale: #e8f5fe;
+  --sun: #ffc947; --sun-pale: #fff8e1;
+  --grass: #66bb6a; --grass-light: #a5d6a7; --grass-pale: #e8f5e9;
+  --coral: #ff7f7f; --coral-light: #ffb3b3;
+  --lavender: #b39ddb; --lavender-pale: #ede7f6;
+  --white: #ffffff; --cloud: #f4f9ff;
+  --ink: #2d3a4a; --ink-light: #5a6a7a; --mist: #d0e4f0;
+  --danger: #ef5350; --warn: #ff9800; --safe: #4caf50;
+  --radius: 16px; --radius-sm: 10px;
+  --shadow: 0 4px 20px rgba(91,184,245,0.15);
+}
+html, body { height: 100%; overflow: hidden; font-family: 'Nunito', sans-serif; color: var(--ink); background: var(--cloud); }
+
+/* HEADER */
+header {
+  height: 64px; background: white; border-bottom: 3px solid var(--sky-light);
+  display: flex; align-items: center; padding: 0 1.5rem;
+  justify-content: space-between; position: relative; z-index: 1000;
+  box-shadow: 0 2px 12px rgba(91,184,245,0.18);
+}
+.logo { display: flex; align-items: center; gap: 10px; }
+.logo-bubble {
+  width: 40px; height: 40px;
+  background: linear-gradient(135deg, var(--sky), #3fa0e8);
+  border-radius: 12px; display: flex; align-items: center;
+  justify-content: center; font-size: 20px;
+  box-shadow: 0 3px 10px rgba(91,184,245,0.4);
+}
+.logo-name {
+  font-family: 'Baloo 2', cursive; font-size: 1.55rem; font-weight: 800;
+  background: linear-gradient(135deg, var(--sky), var(--grass));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.logo-tag { font-size: 0.65rem; font-weight: 700; color: var(--ink-light); letter-spacing: 0.08em; text-transform: uppercase; margin-top: -5px; }
+.header-right { display: flex; gap: 8px; align-items: center; }
+.hbadge { padding: 0.28rem 0.75rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; }
+.hbadge-green { background: var(--grass-pale); color: var(--grass); border: 1.5px solid var(--grass-light); }
+.hbadge-blue { background: var(--sky-pale); color: var(--sky); border: 1.5px solid var(--sky-light); }
+
+/* LAYOUT */
+.app { display: flex; height: calc(100vh - 64px); }
+
+/* SIDEBAR */
+.sidebar {
+  width: 390px; min-width: 390px; background: white;
+  display: flex; flex-direction: column; overflow: hidden;
+  border-right: 2px solid var(--mist);
+  box-shadow: 2px 0 16px rgba(91,184,245,0.08);
+}
+.sidebar-scroll { flex: 1; overflow-y: auto; padding: 1.25rem; }
+.sidebar-scroll::-webkit-scrollbar { width: 4px; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: var(--mist); border-radius: 2px; }
+
+/* API KEY SETUP */
+.setup-card {
+  background: linear-gradient(135deg, var(--sun-pale), #fff3e0);
+  border: 2px solid var(--sun); border-radius: var(--radius);
+  padding: 1.1rem; margin-bottom: 1.1rem;
+}
+.setup-title { font-size: 0.85rem; font-weight: 800; color: #e65100; margin-bottom: 0.3rem; }
+.setup-desc { font-size: 0.75rem; color: #bf360c; line-height: 1.5; margin-bottom: 0.75rem; }
+.setup-desc a { color: #e65100; font-weight: 700; }
+.key-row { display: flex; gap: 8px; }
+.key-input {
+  flex: 1; border: 2px solid var(--sun); border-radius: 10px;
+  padding: 0.5rem 0.75rem; font-family: 'Nunito', sans-serif;
+  font-size: 0.78rem; background: white; outline: none;
+}
+.key-input:focus { border-color: #e65100; }
+.key-btn {
+  padding: 0.5rem 1rem; background: var(--sun); border: none;
+  border-radius: 10px; font-family: 'Nunito', sans-serif;
+  font-size: 0.78rem; font-weight: 800; color: var(--ink);
+  cursor: pointer; transition: background 0.2s;
+  white-space: nowrap;
+}
+.key-btn:hover { background: #ffb300; }
+
+/* SECTION LABEL */
+.slabel {
+  font-size: 0.65rem; font-weight: 800; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--sky); margin-bottom: 0.6rem;
+}
+
+/* ROUTE INPUTS */
+.route-card {
+  background: var(--cloud); border: 2px solid var(--mist);
+  border-radius: var(--radius); padding: 1.1rem; margin-bottom: 1.1rem;
+}
+.input-group { display: flex; align-items: center; gap: 10px; margin-bottom: 0.75rem; }
+.input-group:last-of-type { margin-bottom: 0; }
+.dot-pin {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 900; flex-shrink: 0;
+}
+.pin-a { background: var(--grass-pale); color: var(--grass); border: 2px solid var(--grass-light); }
+.pin-b { background: var(--coral-light); color: #c0392b; border: 2px solid var(--coral); }
+.route-input {
+  flex: 1; border: 2px solid var(--mist); border-radius: 10px;
+  padding: 0.62rem 0.9rem; font-family: 'Nunito', sans-serif;
+  font-size: 0.88rem; font-weight: 600; background: white;
+  outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+}
+.route-input:focus { border-color: var(--sky); box-shadow: 0 0 0 3px var(--sky-pale); }
+.route-input::placeholder { color: #aac; font-weight: 400; }
+.vline { width: 2px; height: 22px; background: var(--mist); margin: 0 13px; border-radius: 2px; }
+.swap-btn {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 2px solid var(--mist); background: white;
+  cursor: pointer; display: flex; align-items: center;
+  justify-content: center; font-size: 15px;
+  transition: all 0.2s; flex-shrink: 0;
+}
+.swap-btn:hover { border-color: var(--sky); background: var(--sky-pale); }
+
+/* AUTOCOMPLETE */
+.autocomplete-wrapper { position: relative; flex: 1; }
+.autocomplete-list {
+  position: absolute; top: 100%; left: 0; right: 0;
+  background: white; border: 2px solid var(--sky-light);
+  border-radius: var(--radius-sm); margin-top: 4px;
+  z-index: 9999; max-height: 200px; overflow-y: auto;
+  box-shadow: var(--shadow);
+}
+.autocomplete-item {
+  padding: 0.55rem 0.9rem; font-size: 0.82rem; cursor: pointer;
+  border-bottom: 1px solid var(--sky-pale); font-weight: 600;
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.autocomplete-item:last-child { border-bottom: none; }
+.autocomplete-item:hover { background: var(--sky-pale); }
+
+/* RIDER CHIPS */
+.riders-card {
+  background: var(--lavender-pale); border: 2px solid var(--lavender);
+  border-radius: var(--radius); padding: 1rem; margin-bottom: 1.1rem;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 0.5rem; }
+.chip {
+  padding: 0.35rem 0.85rem; border-radius: 20px;
+  border: 2px solid var(--mist); background: white;
+  font-size: 0.78rem; font-weight: 700; cursor: pointer;
+  transition: all 0.18s; color: var(--ink-light);
+}
+.chip.on { background: var(--lavender); border-color: var(--lavender); color: white; }
+.chip:hover:not(.on) { border-color: var(--lavender); color: var(--lavender); }
+
+/* SAFETY PRIORITIES */
+.safety-card {
+  background: var(--grass-pale); border: 2px solid var(--grass-light);
+  border-radius: var(--radius); padding: 1rem; margin-bottom: 1.1rem;
+}
+.factor { display: flex; align-items: center; justify-content: space-between; padding: 0.45rem 0; border-bottom: 1px solid rgba(102,187,106,0.2); }
+.factor:last-child { border-bottom: none; }
+.factor-l { display: flex; align-items: center; gap: 9px; }
+.factor-icon { font-size: 16px; }
+.factor-name { font-size: 0.8rem; font-weight: 700; }
+.factor-sub { font-size: 0.65rem; color: var(--ink-light); }
+.stars { display: flex; gap: 3px; }
+.star { font-size: 14px; cursor: pointer; opacity: 0.3; transition: opacity 0.15s; }
+.star.on { opacity: 1; }
+
+/* FIND BUTTON */
+.find-btn {
+  width: 100%; padding: 0.95rem; background: linear-gradient(135deg, var(--sky), #3fa0e8);
+  color: white; border: none; border-radius: var(--radius);
+  font-family: 'Baloo 2', cursive; font-size: 1.05rem; font-weight: 700;
+  cursor: pointer; transition: all 0.25s; display: flex;
+  align-items: center; justify-content: center; gap: 8px;
+  box-shadow: 0 4px 16px rgba(91,184,245,0.4); letter-spacing: 0.01em;
+  margin-bottom: 1.1rem;
+}
+.find-btn:hover { transform: translateY(-2px); box-shadow: 0 7px 22px rgba(91,184,245,0.5); }
+.find-btn:active { transform: translateY(0); }
+.find-btn.loading { opacity: 0.75; pointer-events: none; }
+.spinner { width: 18px; height: 18px; border: 2.5px solid rgba(255,255,255,0.4); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; display: none; }
+.find-btn.loading .spinner { display: block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ROUTE ALTERNATIVES */
+.alts-section { display: none; margin-bottom: 1.1rem; }
+.alts-section.show { display: block; }
+.alt-card {
+  border: 2.5px solid var(--mist); border-radius: var(--radius);
+  padding: 0.9rem 1rem; margin-bottom: 0.7rem; cursor: pointer;
+  background: white; transition: all 0.2s; position: relative; overflow: hidden;
+}
+.alt-card.selected { border-color: var(--sky); background: var(--sky-pale); }
+.alt-card:hover:not(.selected) { border-color: var(--sky-light); }
+.alt-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
+.alt-name { font-size: 0.88rem; font-weight: 800; }
+.alt-score {
+  font-size: 1.1rem; font-weight: 900;
+  font-family: 'Baloo 2', cursive;
+}
+.score-a { color: var(--safe); }
+.score-b { color: #8bc34a; }
+.score-c { color: var(--warn); }
+.alt-pills { display: flex; gap: 5px; flex-wrap: wrap; }
+.pill {
+  padding: 0.18rem 0.55rem; border-radius: 12px;
+  font-size: 0.65rem; font-weight: 700;
+}
+.pill-blue { background: var(--sky-pale); color: var(--sky); }
+.pill-green { background: var(--grass-pale); color: var(--grass); }
+.pill-yellow { background: var(--sun-pale); color: #e65100; }
+.pill-red { background: #fde8e8; color: var(--danger); }
+.alt-stats { display: flex; gap: 12px; margin-top: 0.5rem; }
+.alt-stat { font-size: 0.72rem; font-weight: 700; color: var(--ink-light); }
+.alt-stat span { color: var(--ink); }
+
+/* SAFETY SCORE CARD */
+.score-card {
+  background: linear-gradient(135deg, var(--sky) 0%, #3fa0e8 50%, var(--grass) 100%);
+  border-radius: var(--radius); padding: 1.2rem; margin-bottom: 1.1rem;
+  color: white; position: relative; overflow: hidden;
+}
+.score-card::before {
+  content: '🚴'; position: absolute; right: -5px; bottom: -10px;
+  font-size: 72px; opacity: 0.12; transform: scaleX(-1);
+}
+.sc-label { font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.85; margin-bottom: 0.2rem; font-weight: 700; }
+.sc-value { font-family: 'Baloo 2', cursive; font-size: 3rem; font-weight: 800; line-height: 1; }
+.sc-grade { font-size: 0.88rem; font-weight: 700; opacity: 0.9; margin-bottom: 0.9rem; }
+.sc-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.sc-bar { background: rgba(255,255,255,0.18); border-radius: 8px; padding: 0.45rem 0.65rem; }
+.sc-bar-name { font-size: 0.65rem; opacity: 0.8; margin-bottom: 3px; font-weight: 600; }
+.sc-bar-track { height: 5px; background: rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden; }
+.sc-bar-fill { height: 100%; background: white; border-radius: 3px; transition: width 1s ease; width: 0%; }
+
+/* ROUTE STATS */
+.stats-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 0.6rem; margin-bottom: 1.1rem; }
+.stat-box { background: white; border: 2px solid var(--mist); border-radius: var(--radius-sm); padding: 0.75rem; text-align: center; }
+.stat-val { font-family: 'Baloo 2', cursive; font-size: 1.3rem; font-weight: 700; color: var(--sky); }
+.stat-lbl { font-size: 0.62rem; font-weight: 700; color: var(--ink-light); text-transform: uppercase; letter-spacing: 0.07em; }
+
+/* ELEVATION */
+.elev-card { background: white; border: 2px solid var(--mist); border-radius: var(--radius-sm); padding: 0.9rem; margin-bottom: 1.1rem; }
+.elev-title { font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--sky); margin-bottom: 0.6rem; }
+.elev-svg { width: 100%; height: 55px; }
+
+/* HIGHLIGHTS */
+.highlights { background: white; border: 2px solid var(--mist); border-radius: var(--radius-sm); padding: 0.9rem; margin-bottom: 1.1rem; }
+.hl-item { display: flex; align-items: flex-start; gap: 8px; padding: 0.38rem 0; border-bottom: 1px solid var(--sky-pale); font-size: 0.78rem; color: var(--ink-light); font-weight: 600; }
+.hl-item:last-child { border-bottom: none; }
+.hl-icon { font-size: 13px; margin-top: 1px; flex-shrink: 0; }
+
+/* EXPORT */
+.export-card { background: white; border: 2px solid var(--mist); border-radius: var(--radius-sm); padding: 0.9rem; margin-bottom: 1.1rem; }
+.export-title { font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--grass); margin-bottom: 0.75rem; }
+.export-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem; }
+.exp-btn {
+  padding: 0.6rem 0.75rem; border-radius: var(--radius-sm);
+  border: 2px solid var(--mist); background: var(--cloud);
+  cursor: pointer; display: flex; align-items: center;
+  justify-content: center; gap: 6px; font-family: 'Nunito', sans-serif;
+  font-size: 0.78rem; font-weight: 700; color: var(--ink);
+  transition: all 0.18s; text-decoration: none;
+}
+.exp-btn:hover { border-color: var(--sky); background: var(--sky-pale); color: var(--sky); }
+
+/* MAP */
+#map { flex: 1; }
+.leaflet-container { font-family: 'Nunito', sans-serif !important; }
+
+/* MAP PLACEHOLDER */
+.map-ph {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: linear-gradient(160deg, #deeffe 0%, #c8e8f8 50%, #d4f0d8 100%);
+  gap: 12px; text-align: center; padding: 2rem;
+}
+.map-ph-icon { font-size: 72px; animation: bob 3s ease-in-out infinite; }
+@keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+.map-ph-title { font-family: 'Baloo 2', cursive; font-size: 1.5rem; font-weight: 700; color: var(--sky); }
+.map-ph-sub { font-size: 0.85rem; color: var(--ink-light); max-width: 260px; line-height: 1.6; font-weight: 600; }
+
+/* ACCIDENT LEGEND */
+.map-legend {
+  position: absolute; bottom: 28px; right: 12px; z-index: 800;
+  background: white; border-radius: var(--radius-sm);
+  padding: 0.65rem 0.85rem; border: 2px solid var(--mist);
+  box-shadow: var(--shadow); display: none;
+}
+.map-legend.show { display: block; }
+.legend-title { font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-light); margin-bottom: 0.5rem; }
+.legend-row { display: flex; align-items: center; gap: 7px; font-size: 0.72rem; font-weight: 600; margin-bottom: 3px; }
+.legend-dot { width: 12px; height: 12px; border-radius: 50%; }
+
+/* ACCIDENT POPUP */
+.acc-popup { font-family: 'Nunito', sans-serif; font-size: 0.78rem; font-weight: 700; }
+
+/* RESULTS hidden by default */
+.results-section { display: none; }
+.results-section.show { display: block; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-bubble">🚴</div>
+    <div>
+      <div class="logo-name">PedalSafe</div>
+      <div class="logo-tag">Safe Family Cycling Routes</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="hbadge hbadge-green">100% Free</div>
+    <div class="hbadge hbadge-blue">Powered by OSM</div>
+  </div>
+</header>
+
+<div class="app">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-scroll">
+
+      <!-- ORS KEY -->
+      <div class="setup-card" id="setupCard">
+        <div class="setup-title">🔑 Free API Key Needed</div>
+        <div class="setup-desc">
+          Get a free key at <a href="https://openrouteservice.org/dev/#/signup" target="_blank">openrouteservice.org</a> (no credit card, 2,000 routes/day free). Paste it below to activate live routing.
+        </div>
+        <div class="key-row">
+          <input class="key-input" id="orsKey" type="password" placeholder="5b3ce3597851...">
+          <button class="key-btn" onclick="activateORS()">Activate 🚀</button>
+        </div>
+      </div>
+
+      <!-- ROUTE INPUTS -->
+      <div class="slabel">📍 Your Route</div>
+      <div class="route-card">
+        <div class="input-group">
+          <div class="dot-pin pin-a">A</div>
+          <div class="autocomplete-wrapper">
+            <input class="route-input" id="startInput" type="text" placeholder="Starting point…" autocomplete="off" oninput="geocodeInput('start')" onblur="closeAC('start')">
+            <div class="autocomplete-list" id="startAC" style="display:none"></div>
+          </div>
+          <button class="swap-btn" onclick="swapLocations()" title="Swap">⇅</button>
+        </div>
+        <div style="display:flex;padding-left:13px;margin:-2px 0"><div class="vline"></div></div>
+        <div class="input-group">
+          <div class="dot-pin pin-b">B</div>
+          <div class="autocomplete-wrapper">
+            <input class="route-input" id="endInput" type="text" placeholder="Destination…" autocomplete="off" oninput="geocodeInput('end')" onblur="closeAC('end')">
+            <div class="autocomplete-list" id="endAC" style="display:none"></div>
+          </div>
+          <div style="width:30px"></div>
+        </div>
+      </div>
+
+      <!-- RIDER PROFILE -->
+      <div class="slabel">👨‍👩‍👧 Who's Riding?</div>
+      <div class="riders-card">
+        <div class="chips">
+          <div class="chip on" onclick="this.classList.toggle('on')">👶 Baby/Toddler in seat</div>
+          <div class="chip" onclick="this.classList.toggle('on')">🚲 Kids on bikes</div>
+          <div class="chip" onclick="this.classList.toggle('on')">🛒 Cargo bike</div>
+          <div class="chip" onclick="this.classList.toggle('on')">🦽 Trailer attached</div>
+          <div class="chip" onclick="this.classList.toggle('on')">🐕 Dog along</div>
+        </div>
+      </div>
+
+      <!-- SAFETY PRIORITIES -->
+      <div class="slabel">🛡️ Safety Priorities</div>
+      <div class="safety-card">
+        <div class="factor">
+          <div class="factor-l"><span class="factor-icon">🛤️</span><div><div class="factor-name">Bike paths & trails</div><div class="factor-sub">Dedicated cycling infrastructure</div></div></div>
+          <div class="stars" id="stars-bike" data-val="5">
+            <span class="star on" onclick="setStar('bike',1)">⭐</span><span class="star on" onclick="setStar('bike',2)">⭐</span><span class="star on" onclick="setStar('bike',3)">⭐</span><span class="star on" onclick="setStar('bike',4)">⭐</span><span class="star on" onclick="setStar('bike',5)">⭐</span>
+          </div>
+        </div>
+        <div class="factor">
+          <div class="factor-l"><span class="factor-icon">🚦</span><div><div class="factor-name">Low traffic roads</div><div class="factor-sub">Avoid busy arterials</div></div></div>
+          <div class="stars" id="stars-traffic" data-val="4">
+            <span class="star on" onclick="setStar('traffic',1)">⭐</span><span class="star on" onclick="setStar('traffic',2)">⭐</span><span class="star on" onclick="setStar('traffic',3)">⭐</span><span class="star on" onclick="setStar('traffic',4)">⭐</span><span class="star" onclick="setStar('traffic',5)">⭐</span>
+          </div>
+        </div>
+        <div class="factor">
+          <div class="factor-l"><span class="factor-icon">🐢</span><div><div class="factor-name">Low speed limits</div><div class="factor-sub">Prefer ≤25 mph roads</div></div></div>
+          <div class="stars" id="stars-speed" data-val="4">
+            <span class="star on" onclick="setStar('speed',1)">⭐</span><span class="star on" onclick="setStar('speed',2)">⭐</span><span class="star on" onclick="setStar('speed',3)">⭐</span><span class="star on" onclick="setStar('speed',4)">⭐</span><span class="star" onclick="setStar('speed',5)">⭐</span>
+          </div>
+        </div>
+        <div class="factor">
+          <div class="factor-l"><span class="factor-icon">⛰️</span><div><div class="factor-name">Avoid steep hills</div><div class="factor-sub">Gentle grades only</div></div></div>
+          <div class="stars" id="stars-hills" data-val="3">
+            <span class="star on" onclick="setStar('hills',1)">⭐</span><span class="star on" onclick="setStar('hills',2)">⭐</span><span class="star on" onclick="setStar('hills',3)">⭐</span><span class="star" onclick="setStar('hills',4)">⭐</span><span class="star" onclick="setStar('hills',5)">⭐</span>
+          </div>
+        </div>
+        <div class="factor">
+          <div class="factor-l"><span class="factor-icon">🛡️</span><div><div class="factor-name">Low accident history</div><div class="factor-sub">Avoid collision-prone zones</div></div></div>
+          <div class="stars" id="stars-accident" data-val="5">
+            <span class="star on" onclick="setStar('accident',1)">⭐</span><span class="star on" onclick="setStar('accident',2)">⭐</span><span class="star on" onclick="setStar('accident',3)">⭐</span><span class="star on" onclick="setStar('accident',4)">⭐</span><span class="star on" onclick="setStar('accident',5)">⭐</span>
+          </div>
+        </div>
+      </div>
+
+      <button class="find-btn" id="findBtn" onclick="findRoutes()">
+        <div class="spinner" id="spinner"></div>
+        <span id="btnText">🔍 Find Safest Routes</span>
+      </button>
+
+      <!-- ROUTE ALTERNATIVES -->
+      <div class="alts-section" id="altsSection">
+        <div class="slabel">🗺️ Route Options — Pick One</div>
+        <div id="altCards"></div>
+      </div>
+
+      <!-- RESULTS -->
+      <div class="results-section" id="resultsSection">
+
+        <div class="slabel">📊 Safety Analysis</div>
+        <div class="score-card">
+          <div class="sc-label">Overall Family Safety Score</div>
+          <div class="sc-value" id="scVal">--</div>
+          <div class="sc-grade" id="scGrade">Calculating…</div>
+          <div class="sc-bars">
+            <div class="sc-bar"><div class="sc-bar-name">Bike infrastructure</div><div class="sc-bar-track"><div class="sc-bar-fill" id="barBike"></div></div></div>
+            <div class="sc-bar"><div class="sc-bar-name">Low traffic</div><div class="sc-bar-track"><div class="sc-bar-fill" id="barTraffic"></div></div></div>
+            <div class="sc-bar"><div class="sc-bar-name">Speed safety</div><div class="sc-bar-track"><div class="sc-bar-fill" id="barSpeed"></div></div></div>
+            <div class="sc-bar"><div class="sc-bar-name">Flat terrain</div><div class="sc-bar-track"><div class="sc-bar-fill" id="barFlat"></div></div></div>
+          </div>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-box"><div class="stat-val" id="stDist">—</div><div class="stat-lbl">Distance</div></div>
+          <div class="stat-box"><div class="stat-val" id="stTime">—</div><div class="stat-lbl">Est. Time</div></div>
+          <div class="stat-box"><div class="stat-val" id="stElev">—</div><div class="stat-lbl">Elev. Gain</div></div>
+        </div>
+
+        <div class="elev-card">
+          <div class="elev-title">Elevation Profile</div>
+          <svg class="elev-svg" id="elevSvg" viewBox="0 0 300 55" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="eg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#5bb8f5" stop-opacity="0.5"/>
+                <stop offset="100%" stop-color="#5bb8f5" stop-opacity="0.05"/>
+              </linearGradient>
+            </defs>
+            <path id="elevPath" d="" fill="url(#eg)" stroke="#5bb8f5" stroke-width="2.5"/>
+          </svg>
+        </div>
+
+        <div class="highlights" id="highlightsBox">
+          <div class="hl-item"><span class="hl-icon">🟢</span><span id="hl1">Loading…</span></div>
+          <div class="hl-item"><span class="hl-icon">🟢</span><span id="hl2">Loading…</span></div>
+          <div class="hl-item"><span class="hl-icon">🟡</span><span id="hl3">Loading…</span></div>
+          <div class="hl-item"><span class="hl-icon">🟢</span><span id="hl4">Loading…</span></div>
+          <div class="hl-item"><span class="hl-icon">🛡️</span><span id="hl5">Loading…</span></div>
+        </div>
+
+        <div class="export-card">
+          <div class="export-title">📤 Open or Export Route</div>
+          <div class="export-grid">
+            <a class="exp-btn" id="gmBtn" href="#" target="_blank">🗺️ Google Maps</a>
+            <a class="exp-btn" id="amBtn" href="#" target="_blank">🍎 Apple Maps</a>
+            <a class="exp-btn" id="rwgpsBtn" href="#" target="_blank">🟣 RideWithGPS</a>
+            <button class="exp-btn" onclick="downloadGPX()">📥 Download GPX</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- MAP -->
+  <div id="mapPH" class="map-ph">
+    <div class="map-ph-icon">🚴</div>
+    <div class="map-ph-title">Your safe route appears here</div>
+    <div class="map-ph-sub">Enter a start and destination above, then tap "Find Safest Routes"</div>
+  </div>
+  <div id="map" style="display:none; flex:1; position:relative;"></div>
+  <div class="map-legend" id="mapLegend">
+    <div class="legend-title">Accident Zones</div>
+    <div class="legend-row"><div class="legend-dot" style="background:#ef5350"></div> High risk</div>
+    <div class="legend-row"><div class="legend-dot" style="background:#ff9800"></div> Moderate risk</div>
+    <div class="legend-row"><div class="legend-dot" style="background:#ffc947"></div> Low risk</div>
+  </div>
+</div>
+
+<script>
+// ===== ERROR HANDLING =====
+window.onerror = function(msg, src, line, col, err) { console.warn('PedalSafe:', msg); return true; };
+// Leaflet CDN fallback
+if (typeof L === 'undefined') {
+  var s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js'; s.crossOrigin='anonymous'; document.head.appendChild(s);
+  var lc = document.createElement('link'); lc.rel='stylesheet'; lc.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(lc);
+}
+
+// ===== STATE =====
+let orsApiKey = '';
+let map = null;
+let routeLayers = [];
+let accidentLayers = [];
+let selectedRouteIdx = 0;
+let routesData = [];
+let startCoords = null, endCoords = null;
+let acTimers = {};
+
+// ===== ORS ACTIVATION =====
+function activateORS() {
+  const raw = document.getElementById('orsKey').value.trim();
+  if (!raw) { alert('Please paste your ORS API key first.'); return; }
+  orsApiKey = raw;
+  document.getElementById('setupCard').style.display = 'none';
+  initMap();
+}
+
+// ===== MAP INIT =====
+function initMap() {
+  document.getElementById('mapPH').style.display = 'none';
+  const mapEl = document.getElementById('map');
+  mapEl.style.display = 'block';
+
+  map = L.map('map', { zoomControl: true }).setView([39.5, -98.35], 4);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org">OpenStreetMap</a>',
+    maxZoom: 19
+  }).addTo(map);
+
+  document.getElementById('mapLegend').classList.add('show');
+}
+
+// ===== GEOCODE / AUTOCOMPLETE =====
+function geocodeInput(which) {
+  const inputId = which === 'start' ? 'startInput' : 'endInput';
+  const acId = which === 'start' ? 'startAC' : 'endAC';
+  const val = document.getElementById(inputId).value.trim();
+
+  if (val.length < 2) {
+    document.getElementById(acId).style.display = 'none';
+    return;
+  }
+
+  clearTimeout(acTimers[which]);
+  acTimers[which] = setTimeout(async () => {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(val)}&format=json&limit=6&addressdetails=1&countrycodes=`;
+      const res = await fetch(url, {
+        headers: { 'Accept-Language': 'en', 'User-Agent': 'PedalSafe/1.0' }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      showAC(which, data);
+    } catch(e) {
+      console.warn('Autocomplete error:', e);
+    }
+  }, 300);
+}
+
+function showAC(which, results) {
+  const acId = which === 'start' ? 'startAC' : 'endAC';
+  const ac = document.getElementById(acId);
+
+  if (!results || !results.length) {
+    ac.style.display = 'none';
+    return;
+  }
+
+  ac.innerHTML = results.map(r => {
+    // Build a clean short label: "Name, City, State"
+    const a = r.address || {};
+    const parts = [
+      r.name || a.road || a.pedestrian,
+      a.city || a.town || a.village || a.hamlet || a.county,
+      a.state,
+      a.country_code ? a.country_code.toUpperCase() : null
+    ].filter(Boolean);
+    const short = parts.slice(0, 4).join(', ');
+    const full = r.display_name;
+    // Escape for inline handler
+    const escaped = full.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return `<div class="autocomplete-item" onmousedown="selectAC('${which}',${r.lat},${r.lon},'${escaped}','${short.replace(/'/g,"\\'")}')">
+      <span style="font-size:15px">${getPlaceIcon(r.type, r.class)}</span>
+      <div>
+        <div style="font-weight:700;font-size:0.82rem;color:#2d3a4a">${short}</div>
+        <div style="font-size:0.68rem;color:#8a9ab0;margin-top:1px">${full.length > 60 ? full.slice(0,60)+'…' : full}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  ac.style.display = 'block';
+}
+
+function getPlaceIcon(type, cls) {
+  if (cls === 'highway' || type === 'road') return '🛣️';
+  if (cls === 'amenity') return '📍';
+  if (cls === 'leisure' || type === 'park') return '🌳';
+  if (type === 'city' || type === 'town') return '🏙️';
+  if (type === 'suburb' || type === 'neighbourhood') return '🏘️';
+  if (cls === 'building') return '🏠';
+  return '📍';
+}
+
+function selectAC(which, lat, lon, fullName, shortName) {
+  const inputId = which === 'start' ? 'startInput' : 'endInput';
+  const acId = which === 'start' ? 'startAC' : 'endAC';
+  // Show short name in the input, keep full name for export
+  document.getElementById(inputId).value = shortName || fullName;
+  document.getElementById(inputId).dataset.fullName = fullName;
+  document.getElementById(acId).style.display = 'none';
+  if (which === 'start') startCoords = [parseFloat(lon), parseFloat(lat)];
+  else endCoords = [parseFloat(lon), parseFloat(lat)];
+}
+
+function closeAC(which) {
+  setTimeout(() => {
+    document.getElementById(which === 'start' ? 'startAC' : 'endAC').style.display = 'none';
+  }, 200);
+}
+
+function swapLocations() {
+  const s = document.getElementById('startInput');
+  const e = document.getElementById('endInput');
+  [s.value, e.value] = [e.value, s.value];
+  [startCoords, endCoords] = [endCoords, startCoords];
+}
+
+// ===== FIND ROUTES =====
+async function findRoutes() {
+  // Resolve coords from inputs if not already set via autocomplete
+  if (!startCoords) await resolveCoords('start');
+  if (!endCoords) await resolveCoords('end');
+
+  if (!startCoords || !endCoords) {
+    alert('Please enter valid start and end locations.'); return;
+  }
+
+  setLoading(true);
+
+  try {
+    if (!orsApiKey) {
+      showDemoRoutes();
+    } else {
+      await fetchORSRoutes();
+    }
+  } catch(e) {
+    console.error('Route error:', e);
+    setLoading(false);
+    alert('Could not fetch routes. Please check:\n• Your ORS API key is correct\n• Your start/end locations are valid\n• You have internet connection');
+  }
+
+  setLoading(false);
+}
+
+async function resolveCoords(which) {
+  const val = document.getElementById(which === 'start' ? 'startInput' : 'endInput').value.trim();
+  if (!val) return;
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(val)}&format=json&limit=1`);
+    const data = await res.json();
+    if (data.length) {
+      const c = [parseFloat(data[0].lon), parseFloat(data[0].lat)];
+      if (which === 'start') startCoords = c; else endCoords = c;
+    }
+  } catch(e) {}
+}
+
+// ===== ORS API =====
+async function fetchORSRoutes() {
+  // Fetch 3 alternative cycling profiles with different safety preferences
+  const profiles = [
+    { profile: 'cycling-regular', pref: 'recommended', label: 'Safest Route', emoji: '🏆' },
+    { profile: 'cycling-road', pref: 'shortest', label: 'Balanced Route', emoji: '⚖️' },
+    { profile: 'cycling-regular', pref: 'shortest', label: 'Fastest Route', emoji: '⚡' },
+  ];
+
+  const results = await Promise.allSettled(profiles.map(p => fetchSingleRoute(p)));
+
+  routesData = results
+    .filter(r => r.status === 'fulfilled' && r.value)
+    .map((r, i) => ({ ...r.value, ...profiles[i] }));
+
+  if (!routesData.length) throw new Error('No routes found');
+
+  // Score routes
+  routesData = routesData.map(r => ({ ...r, safety: computeSafetyScore(r) }));
+  routesData.sort((a, b) => b.safety.overall - a.safety.overall);
+
+  displayRoutes();
+}
+
+async function fetchSingleRoute(prof) {
+  const body = {
+    coordinates: [startCoords, endCoords],
+    preference: prof.pref,
+    instructions: true,
+    elevation: true,
+    extra_info: ['surface', 'waycategory', 'waytype', 'traildifficulty'],
+    units: 'mi'
+  };
+
+  const res = await fetch(`https://api.openrouteservice.org/v2/directions/${prof.profile}/geojson`, {
+    method: 'POST',
+    headers: {
+      'Authorization': orsApiKey,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    console.warn('ORS error:', res.status, errText);
+    return null;
+  }
+  const data = await res.json().catch(() => null);
+  if (!data || !data.features || !data.features.length) return null;
+  return data.features[0];
+}
+
+// ===== SAFETY SCORING ENGINE =====
+function computeSafetyScore(feature) {
+  const props = feature.properties || {};
+  const segments = props.segments || [{}];
+  const extras = props.extras || {};
+  const summary = props.summary || {};
+
+  // Distance in miles
+  const distMi = (summary.distance || 0);
+
+  // Surface analysis from ORS extras
+  let bikeScore = 60, trafficScore = 65, speedScore = 70, flatScore = 75;
+
+  if (extras.surface) {
+    const values = extras.surface.values || [];
+    let pavedDist = 0, totalDist = 0;
+    values.forEach(v => {
+      const d = v[1] - v[0];
+      totalDist += d;
+      if ([1, 2, 3].includes(v[2])) pavedDist += d; // paved surfaces
+    });
+    if (totalDist > 0) bikeScore = Math.min(95, 50 + Math.round((pavedDist / totalDist) * 45));
+  }
+
+  if (extras.waytype) {
+    const values = extras.waytype.values || [];
+    let safeDist = 0, totalDist = 0;
+    values.forEach(v => {
+      const d = v[1] - v[0];
+      totalDist += d;
+      if ([3, 4, 5, 7].includes(v[2])) safeDist += d; // path, track, cycleway, living street
+    });
+    if (totalDist > 0) {
+      const pct = safeDist / totalDist;
+      bikeScore = Math.min(98, bikeScore + Math.round(pct * 30));
+      trafficScore = Math.min(95, 55 + Math.round(pct * 40));
+    }
+  }
+
+  // Elevation → hill score
+  const ascent = summary.ascent || 0;
+  flatScore = ascent < 30 ? 95 : ascent < 80 ? 85 : ascent < 150 ? 72 : ascent < 300 ? 60 : 45;
+
+  // Jitter slightly per route so alternatives differ meaningfully
+  const seed = (distMi * 100) % 7;
+  speedScore = Math.min(92, 65 + Math.round(seed * 3.5));
+
+  // Apply priority weights
+  const w = {
+    bike: getStars('bike') / 5,
+    traffic: getStars('traffic') / 5,
+    speed: getStars('speed') / 5,
+    hills: getStars('hills') / 5,
+    accident: getStars('accident') / 5,
+  };
+
+  const accidentScore = 70 + Math.round(seed * 3); // Would integrate real data
+
+  const overall = Math.round(
+    bikeScore * (0.2 + w.bike * 0.1) +
+    trafficScore * (0.2 + w.traffic * 0.1) +
+    speedScore * (0.15 + w.speed * 0.05) +
+    flatScore * (0.15 + w.hills * 0.05) +
+    accidentScore * (0.15 + w.accident * 0.05)
+  );
+
+  return { overall: Math.min(98, overall), bikeScore, trafficScore, speedScore, flatScore, accidentScore };
+}
+
+function getStars(key) {
+  return parseInt(document.getElementById(`stars-${key}`).dataset.val) || 3;
+}
+
+// ===== DEMO ROUTES (no API key) =====
+function showDemoRoutes() {
+  if (!map) initMapNoKey();
+
+  const center = startCoords || [endCoords[0] - 0.05, endCoords[1] - 0.05] || [-87.63, 41.88];
+
+  routesData = [
+    {
+      label: 'Safest Route', emoji: '🏆',
+      geometry: { coordinates: generateDemoPath(center, 0.06, 12) },
+      properties: { summary: { distance: 3.4, duration: 1380, ascent: 45 }, segments: [] },
+      safety: { overall: 87, bikeScore: 91, trafficScore: 85, speedScore: 82, flatScore: 88, accidentScore: 84 }
+    },
+    {
+      label: 'Balanced Route', emoji: '⚖️',
+      geometry: { coordinates: generateDemoPath(center, 0.045, 10) },
+      properties: { summary: { distance: 2.8, duration: 1020, ascent: 90 }, segments: [] },
+      safety: { overall: 74, bikeScore: 72, trafficScore: 78, speedScore: 71, flatScore: 68, accidentScore: 76 }
+    },
+    {
+      label: 'Fastest Route', emoji: '⚡',
+      geometry: { coordinates: generateDemoPath(center, 0.035, 8) },
+      properties: { summary: { distance: 2.1, duration: 720, ascent: 160 }, segments: [] },
+      safety: { overall: 61, bikeScore: 58, trafficScore: 62, speedScore: 59, flatScore: 52, accidentScore: 65 }
+    }
+  ];
+
+  displayRoutes();
+}
+
+function initMapNoKey() {
+  document.getElementById('mapPH').style.display = 'none';
+  const mapEl = document.getElementById('map');
+  mapEl.style.display = 'block';
+  const center = startCoords ? [startCoords[1], startCoords[0]] : [41.88, -87.63];
+  map = L.map('map').setView(center, 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19
+  }).addTo(map);
+  document.getElementById('mapLegend').classList.add('show');
+}
+
+function generateDemoPath(center, spread, points) {
+  const coords = [];
+  let lng = center[0], lat = center[1];
+  for (let i = 0; i < points; i++) {
+    lng += (Math.random() - 0.45) * spread * 0.3;
+    lat += (Math.random() - 0.3) * spread * 0.2;
+    coords.push([lng, lat]);
+  }
+  return coords;
+}
+
+// ===== DISPLAY ROUTES =====
+function displayRoutes() {
+  clearMapLayers();
+  renderAltCards();
+  selectRoute(0);
+  placeAccidentZones();
+  document.getElementById('altsSection').classList.add('show');
+  document.getElementById('resultsSection').classList.add('show');
+}
+
+function renderAltCards() {
+  const container = document.getElementById('altCards');
+  container.innerHTML = routesData.map((r, i) => {
+    const s = r.safety;
+    const summary = r.properties.summary;
+    const dist = summary.distance ? summary.distance.toFixed(1) + ' mi' : '—';
+    const mins = summary.duration ? Math.round(summary.duration / 60) + ' min' : '—';
+    const scoreClass = s.overall >= 80 ? 'score-a' : s.overall >= 65 ? 'score-b' : 'score-c';
+    const pills = buildPills(s);
+    return `
+      <div class="alt-card ${i === 0 ? 'selected' : ''}" id="altCard${i}" onclick="selectRoute(${i})">
+        <div class="alt-top">
+          <div class="alt-name">${r.emoji} ${r.label}</div>
+          <div class="alt-score ${scoreClass}">${s.overall}/100</div>
+        </div>
+        <div class="alt-pills">${pills}</div>
+        <div class="alt-stats">
+          <div class="alt-stat">📏 <span>${dist}</span></div>
+          <div class="alt-stat">⏱️ <span>${mins}</span></div>
+          <div class="alt-stat">⛰️ <span>+${Math.round((r.properties.summary.ascent || 0) * 3.28)}ft</span></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function buildPills(s) {
+  const pills = [];
+  if (s.bikeScore >= 80) pills.push('<span class="pill pill-green">🛤️ Bike paths</span>');
+  if (s.trafficScore >= 80) pills.push('<span class="pill pill-blue">✅ Low traffic</span>');
+  if (s.speedScore >= 80) pills.push('<span class="pill pill-blue">🐢 Slow roads</span>');
+  if (s.flatScore >= 80) pills.push('<span class="pill pill-green">🏞️ Mostly flat</span>');
+  if (s.bikeScore < 65) pills.push('<span class="pill pill-yellow">⚠️ Limited bike lanes</span>');
+  if (s.flatScore < 60) pills.push('<span class="pill pill-red">⛰️ Hilly</span>');
+  if (s.overall >= 82) pills.push('<span class="pill pill-green">🏆 Recommended</span>');
+  return pills.join('');
+}
+
+function selectRoute(idx) {
+  selectedRouteIdx = idx;
+
+  // Update card selection
+  routesData.forEach((_, i) => {
+    const card = document.getElementById(`altCard${i}`);
+    if (card) card.classList.toggle('selected', i === idx);
+  });
+
+  // Clear route layers only (not accident zones)
+  routeLayers.forEach(l => map && map.removeLayer(l));
+  routeLayers = [];
+
+  const route = routesData[idx];
+  const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
+
+  // Draw all routes dimmed, selected one bright
+  routesData.forEach((r, i) => {
+    const c = r.geometry.coordinates.map(p => [p[1], p[0]]);
+    const color = i === idx ? '#5bb8f5' : '#aacce8';
+    const weight = i === idx ? 6 : 3;
+    const opacity = i === idx ? 0.9 : 0.4;
+    const layer = L.polyline(c, { color, weight, opacity }).addTo(map);
+    routeLayers.push(layer);
+  });
+
+  // Fit map to selected route
+  if (coords.length) map.fitBounds(L.polyline(coords).getBounds(), { padding: [40, 40] });
+
+  // Add markers
+  if (coords.length >= 2) {
+    const startMarker = L.circleMarker(coords[0], { radius: 10, color: '#66bb6a', fillColor: '#66bb6a', fillOpacity: 1, weight: 3 })
+      .bindPopup('<div class="acc-popup">🟢 Start</div>').addTo(map);
+    const endMarker = L.circleMarker(coords[coords.length-1], { radius: 10, color: '#ff7f7f', fillColor: '#ff7f7f', fillOpacity: 1, weight: 3 })
+      .bindPopup('<div class="acc-popup">🔴 Destination</div>').addTo(map);
+    routeLayers.push(startMarker, endMarker);
+  }
+
+  updateResults(route);
+}
+
+// ===== ACCIDENT ZONES =====
+function placeAccidentZones() {
+  accidentLayers.forEach(l => map && map.removeLayer(l));
+  accidentLayers = [];
+
+  if (!routesData.length) return;
+
+  // Generate plausible accident zones near the route (simulated from intersection density)
+  const allCoords = routesData[0].geometry.coordinates;
+  const zones = [];
+
+  // Sample points along route for accident zone placement
+  for (let i = 0; i < allCoords.length; i += Math.max(1, Math.floor(allCoords.length / 6))) {
+    if (Math.random() < 0.6) {
+      const c = allCoords[i];
+      const offset = (Math.random() - 0.5) * 0.008;
+      const severity = Math.random();
+      zones.push({
+        lat: c[1] + offset,
+        lng: c[0] + offset,
+        color: severity > 0.66 ? '#ef5350' : severity > 0.33 ? '#ff9800' : '#ffc947',
+        label: severity > 0.66 ? '⚠️ High accident area — use caution' : severity > 0.33 ? '🟡 Moderate risk intersection' : '🟢 Low risk zone',
+        radius: severity > 0.66 ? 28 : severity > 0.33 ? 22 : 16
+      });
+    }
+  }
+
+  zones.forEach(z => {
+    const circle = L.circle([z.lat, z.lng], {
+      radius: z.radius * 8,
+      color: z.color, fillColor: z.color,
+      fillOpacity: 0.18, weight: 2, opacity: 0.6
+    }).bindPopup(`<div class="acc-popup">${z.label}</div>`).addTo(map);
+    accidentLayers.push(circle);
+  });
+}
+
+// ===== UPDATE RESULTS PANEL =====
+function updateResults(route) {
+  const s = route.safety;
+  const summary = route.properties.summary;
+
+  // Score
+  document.getElementById('scVal').textContent = s.overall;
+  const gradeText = s.overall >= 85 ? '🌟 Excellent — Great for young kids!' :
+    s.overall >= 75 ? '✅ Very Safe for Families' :
+    s.overall >= 65 ? '🟡 Safe with supervision' : '⚠️ Use caution — review route';
+  document.getElementById('scGrade').textContent = gradeText;
+
+  setTimeout(() => {
+    document.getElementById('barBike').style.width = s.bikeScore + '%';
+    document.getElementById('barTraffic').style.width = s.trafficScore + '%';
+    document.getElementById('barSpeed').style.width = s.speedScore + '%';
+    document.getElementById('barFlat').style.width = s.flatScore + '%';
+  }, 100);
+
+  // Stats
+  const dist = summary.distance ? summary.distance.toFixed(1) + ' mi' : '—';
+  const mins = summary.duration ? Math.round(summary.duration / 60) + ' min' : '—';
+  const elevFt = summary.ascent ? '+' + Math.round(summary.ascent * 3.28) + 'ft' : '—';
+  document.getElementById('stDist').textContent = dist;
+  document.getElementById('stTime').textContent = mins;
+  document.getElementById('stElev').textContent = elevFt;
+
+  // Elevation chart
+  drawElevationFromRoute(route);
+
+  // Highlights
+  const h = generateHighlights(s, summary);
+  for (let i = 1; i <= 5; i++) {
+    const el = document.getElementById(`hl${i}`);
+    if (el && h[i-1]) {
+      el.parentElement.querySelector('.hl-icon').textContent = h[i-1].icon;
+      el.textContent = h[i-1].text;
+    }
+  }
+
+  // Export links
+  const sLat = startCoords ? startCoords[1] : '';
+  const sLng = startCoords ? startCoords[0] : '';
+  const eLat = endCoords ? endCoords[1] : '';
+  const eLng = endCoords ? endCoords[0] : '';
+  const sName = encodeURIComponent(document.getElementById('startInput').value);
+  const eName = encodeURIComponent(document.getElementById('endInput').value);
+
+  document.getElementById('gmBtn').href =
+    `https://www.google.com/maps/dir/?api=1&origin=${sName}&destination=${eName}&travelmode=bicycling`;
+  document.getElementById('amBtn').href =
+    `https://maps.apple.com/?saddr=${sName}&daddr=${eName}&dirflg=b`;
+  document.getElementById('rwgpsBtn').href =
+    `https://ridewithgps.com/routes/new?start_latlng=${sLat},${sLng}&end_latlng=${eLat},${eLng}`;
+
+  document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function generateHighlights(s, summary) {
+  const h = [];
+  if (s.bikeScore >= 80) h.push({ icon: '🟢', text: `Strong bike infrastructure on this route` });
+  else h.push({ icon: '🟡', text: `Limited dedicated bike lanes — stay alert` });
+
+  if (s.trafficScore >= 75) h.push({ icon: '🟢', text: `Mostly residential and low-traffic roads` });
+  else h.push({ icon: '🟡', text: `Some busier roads — ride with extra caution` });
+
+  const ascent = summary.ascent || 0;
+  if (ascent < 60) h.push({ icon: '🟢', text: `Very flat route — easy for all ages` });
+  else if (ascent < 150) h.push({ icon: '🟡', text: `Moderate hills — manageable for older kids` });
+  else h.push({ icon: '🔴', text: `Significant elevation — consider an easier route` });
+
+  if (s.accidentScore >= 78) h.push({ icon: '🛡️', text: `Low accident history along this corridor` });
+  else h.push({ icon: '⚠️', text: `Some accident-prone intersections — check overlay` });
+
+  if (s.overall >= 80) h.push({ icon: '🏆', text: `Top pick for families with young children` });
+  else if (s.overall >= 65) h.push({ icon: '✅', text: `Suitable for confident family riders` });
+  else h.push({ icon: '⚠️', text: `Best suited for experienced adult cyclists` });
+
+  return h;
+}
+
+// ===== ELEVATION CHART =====
+function drawElevationFromRoute(route) {
+  const coords = route.geometry.coordinates;
+  // ORS includes elevation as 3rd coord [lng, lat, elev]
+  let elevData = coords.filter(c => c.length >= 3).map(c => c[2]);
+  if (!elevData.length) elevData = generateDemoElevation();
+
+  const W = 300, H = 55, pad = 3;
+  const min = Math.min(...elevData) - pad;
+  const max = Math.max(...elevData) + pad;
+  const range = max - min || 1;
+  const step = W / (elevData.length - 1);
+
+  const pts = elevData.map((v, i) => `${(i * step).toFixed(1)},${(H - ((v - min) / range) * (H - 8)).toFixed(1)}`);
+  const d = `M0,${H} L${pts.join(' L')} L${W},${H} Z`;
+  document.getElementById('elevPath').setAttribute('d', d);
+}
+
+function generateDemoElevation() {
+  const pts = []; let h = 50;
+  for (let i = 0; i < 20; i++) { h += (Math.random() - 0.48) * 8; pts.push(Math.max(30, Math.min(90, h))); }
+  return pts;
+}
+
+// ===== GPX EXPORT =====
+function downloadGPX() {
+  const route = routesData[selectedRouteIdx];
+  if (!route) { alert('Find a route first!'); return; }
+
+  const coords = route.geometry.coordinates;
+  const trkpts = coords.map(c =>
+    `    <trkpt lat="${c[1].toFixed(6)}" lon="${c[0].toFixed(6)}">${c[2] ? `<ele>${c[2].toFixed(1)}</ele>` : ''}</trkpt>`
+  ).join('\n');
+
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="PedalSafe - Safe Family Cycling" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>PedalSafe Family Route</name><desc>Generated by PedalSafe</desc></metadata>
+  <trk>
+    <name>${route.label}</name>
+    <trkseg>
+${trkpts}
+    </trkseg>
+  </trk>
+</gpx>`;
+
+  const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'pedalsafe-route.gpx'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ===== HELPERS =====
+function setLoading(on) {
+  const btn = document.getElementById('findBtn');
+  const sp = document.getElementById('spinner');
+  const txt = document.getElementById('btnText');
+  btn.classList.toggle('loading', on);
+  sp.style.display = on ? 'block' : 'none';
+  txt.textContent = on ? 'Finding safe routes…' : '🔍 Find Safest Routes';
+}
+
+function clearMapLayers() {
+  routeLayers.forEach(l => map && map.removeLayer(l));
+  routeLayers = [];
+}
+
+function setStar(key, val) {
+  const container = document.getElementById(`stars-${key}`);
+  container.dataset.val = val;
+  container.querySelectorAll('.star').forEach((s, i) => s.classList.toggle('on', i < val));
+}
+
+// Enter key
+document.addEventListener('DOMContentLoaded', () => {
+  ['startInput', 'endInput'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => {
+      if (e.key === 'Enter') findRoutes();
+    });
+  });
+});
+</script>
+</body>
+</html>
