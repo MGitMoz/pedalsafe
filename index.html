@@ -967,8 +967,7 @@ async function fetchSingleRoute(prof, tolerance) {
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      console.warn('ORS error:', res.status, errText);
-      // On 400, retry with minimal params
+      console.error('ORS 400 details:', errText);
       if (res.status === 400 || res.status === 404) return fetchSingleRouteFallback(prof);
       return null;
     }
@@ -981,24 +980,13 @@ async function fetchSingleRoute(prof, tolerance) {
   }
 }
 
-// Fallback route with minimal restrictions if main request fails
 async function fetchSingleRouteFallback(prof) {
   const body = {
     coordinates: [startCoords, endCoords],
     preference: prof.mode === 'fastest' ? 'shortest' : 'recommended',
     instructions: true,
     elevation: true,
-    extra_info: ['surface', 'waytype', 'steepness'],
-    units: 'mi',
-    options: {
-      avoid_features: ['highways', 'tollways'],
-      profile_params: {
-        weightings: {
-          quiet: { factor: prof.mode === 'safest' ? 0.8 : 0.4 },
-          green: { factor: prof.mode === 'safest' ? 0.8 : 0.3 },
-        }
-      }
-    }
+    units: 'mi'
   };
 
   try {
@@ -1007,11 +995,16 @@ async function fetchSingleRouteFallback(prof) {
       headers: { 'Authorization': orsApiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
+    const text = await res.text();
+    console.log('Fallback ORS response:', res.status, text);
     if (!res.ok) return null;
-    const data = await res.json().catch(() => null);
+    const data = JSON.parse(text);
     if (!data?.features?.length) return null;
     return data.features[0];
-  } catch(e) { return null; }
+  } catch(e) {
+    console.error('Fallback error:', e);
+    return null;
+  }
 }
 
 // ===== SAFETY SCORING ENGINE =====
