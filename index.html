@@ -846,7 +846,7 @@ async function findRoutes() {
   } catch(e) {
     console.error('Route error:', e);
     setLoading(false);
-    alert('Could not fetch routes. Please check:\n• Your ORS API key is correct\n• Your start/end locations are valid\n• You have internet connection');
+    alert('Could not fetch routes. Please check:\n• Your start and end locations are valid\n• You have an internet connection\n\n(Check browser console for details)');
   }
 
   setLoading(false);
@@ -873,7 +873,7 @@ async function fetchORSRoutes() {
   // We use it for all 3 routes and vary the aggressiveness of safety params
   const profiles = [
     {
-      profile: 'cycling-electric',
+      profile: 'cycling-regular',
       pref: 'recommended',
       label: 'Safest Route', emoji: '🏆',
       mode: 'safest'
@@ -907,68 +907,46 @@ async function fetchORSRoutes() {
 }
 
 async function fetchSingleRoute(prof, tolerance) {
-  // Detour factor: how much longer than direct distance is acceptable
-  // 1=shortest possible, 5=up to 4x direct distance for maximum safety
   const detourFactors = [1.05, 1.4, 2.0, 3.0, 4.5];
-  const detourFactor = detourFactors[tolerance - 1];
 
-  // Hill limits tighten significantly at higher safety tolerance
-  // because the user is willing to go longer to avoid steep descents
   const maxIncline = prof.mode === 'safest'
-    ? (tolerance <= 2 ? 4 : tolerance <= 3 ? 6 : tolerance <= 4 ? 8 : 10)
-    : (tolerance <= 2 ? 8 : tolerance <= 3 ? 12 : 15);
+    ? (tolerance <= 2 ? 6 : tolerance <= 3 ? 8 : 10)
+    : 15;
 
   const maxDecline = prof.mode === 'safest'
-    ? (tolerance <= 2 ? 3 : tolerance <= 3 ? 5 : tolerance <= 4 ? 6 : 8)
-    : (tolerance <= 2 ? 6 : tolerance <= 3 ? 9 : 12);
+    ? (tolerance <= 2 ? 5 : tolerance <= 3 ? 6 : 8)
+    : 12;
 
-  // Quietness factor: 1.0 = maximum preference for quiet streets
-  // This is the most impactful setting for avoiding busy roads
   const quietness = prof.mode === 'safest'
     ? (tolerance <= 2 ? 0.8 : tolerance <= 3 ? 0.9 : 1.0)
-    : prof.mode === 'balanced'
-    ? (tolerance <= 2 ? 0.5 : tolerance <= 3 ? 0.65 : 0.75)
-    : 0.2;
+    : prof.mode === 'balanced' ? 0.6 : 0.2;
 
   const body = {
     coordinates: [startCoords, endCoords],
     preference: prof.pref,
     instructions: true,
     elevation: true,
-    extra_info: ['surface', 'waycategory', 'waytype', 'steepness', 'traildifficulty'],
+    extra_info: ['surface', 'waytype', 'steepness'],
     units: 'mi',
     options: {
-      avoid_features: ['highways', 'tollways', 'ferries', 'steps'],
+      avoid_features: ['highways', 'tollways', 'ferries'],
       profile_params: {
         weightings: {
-          // quiet: how strongly to prefer quiet/residential roads over busy ones
-          // This is the key lever for traffic volume avoidance
           quiet: { factor: quietness },
-          // green: prefer parks, paths, cycleways
-          green: { factor: prof.mode === 'fastest' ? 0.3 : 0.9 },
-          // surface quality preference
-          surface: { factor: prof.mode === 'fastest' ? 0.3 : 0.7 },
+          green: { factor: prof.mode === 'fastest' ? 0.3 : 0.8 },
         },
         restrictions: {
-          // Incline/decline limits in % grade — critical for steep descent safety
           maximum_incline: maxIncline,
           maximum_decline: maxDecline,
-          // Avoid roads where cyclists must share with fast-moving traffic
-          allow_unsuitable: false,
         }
-      },
-      // Allow route to be longer than direct distance by detourFactor
-      // This is what enables "go 3x longer to stay safe"
-      maximum_speed_lower_bound: 0,
+      }
     }
   };
 
-  // For safest route at tolerance 4-5, add dynamic waypoints
-  // to force the route through known quiet areas (midpoint offset trick)
+  // Midpoint waypoint trick for max-safety routes
   if (prof.mode === 'safest' && tolerance >= 4 && startCoords && endCoords) {
     const midLng = (startCoords[0] + endCoords[0]) / 2;
     const midLat = (startCoords[1] + endCoords[1]) / 2;
-    // Offset midpoint slightly to encourage residential routing
     const offsetScale = 0.002 * tolerance;
     body.coordinates = [
       startCoords,
@@ -977,25 +955,30 @@ async function fetchSingleRoute(prof, tolerance) {
     ];
   }
 
-  const res = await fetch(`https://api.openrouteservice.org/v2/directions/${prof.profile}/geojson`, {
-    method: 'POST',
-    headers: {
-      'Authorization': orsApiKey,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(body)
-  });
+  try {
+    const res = await fetch(`https://api.openrouteservice.org/v2/directions/${prof.profile}/geojson`, {
+      method: 'POST',
+      headers: {
+        'Authorization': orsApiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    console.warn('ORS error:', res.status, errText);
-    // Fallback: retry without restrictions if failed
-    if (res.status === 400) return fetchSingleRouteFallback(prof);
-    return null;
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.warn('ORS error:', res.status, errText);
+      // On 400, retry with minimal params
+      if (res.status === 400 || res.status === 404) return fetchSingleRouteFallback(prof);
+      return null;
+    }
+    const data = await res.json().catch(() => null);
+    if (!data?.features?.length) return null;
+    return data.features[0];
+  } catch(e) {
+    console.warn('Fetch error:', e);
+    return fetchSingleRouteFallback(prof);
   }
-  const data = await res.json().catch(() => null);
-  if (!data || !data.features || !data.features.length) return null;
-  return data.features[0];
 }
 
 // Fallback route with minimal restrictions if main request fails
